@@ -1,0 +1,8 @@
+.python-version
+
+data/
+tess_asteroid_ml/__pycache__
+notebooks/.ipynb_checkpoints
+notebooks/.virtual_documents
+notebooks/snippets
+notebooks/.python-version
