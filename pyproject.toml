@@ -1,0 +1,27 @@
+[tool.poetry]
+name = "tess-asteroid-ml"
+version = "0.1.0"
+description = "Tools to create a ML-ready dataset out of TESS FFIs to study asteroids."
+authors = ["Jorge Martínez-Palomera <jorgemarpa@ug.uchile.cl>"]
+
+[tool.poetry.dependencies]
+python = "^3.8"
+scipy = "^1.9.0"
+matplotlib = "^3.6.3"
+lightkurve = "^2.3.0"
+fitsio = "^1.2.0"
+astropy = "^5.2.0"
+pandas = "^1.4.4"
+numpy = "^1.23.0"
+tqdm = "^4.51.1"
+tess-ephem = "^0"
+
+[tool.poetry.dev-dependencies]
+pytest = "^5.2"
+jupyterlab = "^2.2.2"
+flake8 = "^3.8.1"
+black = "^20.8b1"
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
