@@ -14,7 +14,8 @@ astropy = "^5.2.0"
 pandas = "^1.4.4"
 numpy = "^1.23.0"
 tqdm = "^4.51.1"
-tess-ephem = "^0"
+tess-ephem = { git = "https://github.com/jorgemarpa/tess-ephem.git", branch = "new-ver" }
+tess-locator = { git = "https://github.com/jorgemarpa/tess-locator.git" branch = "new_ver"}
 sbident = { git = "https://github.com/bengebre/sbident.fit" }
 
 [tool.poetry.dev-dependencies]
