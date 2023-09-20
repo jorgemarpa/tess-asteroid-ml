@@ -1,6 +1,7 @@
 .python-version
 
-data/
+data/tesscuts
+data/.DS_Store
 tess_asteroid_ml/__pycache__
 notebooks/.ipynb_checkpoints
 notebooks/.virtual_documents
