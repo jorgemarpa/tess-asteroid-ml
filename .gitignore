@@ -1,6 +1,8 @@
 .python-version
 
+data/figures
 data/tesscuts
+data/jpl/.DS_Store
 data/jpl/tracks
 data/.DS_Store
 tess_asteroid_ml/__pycache__
