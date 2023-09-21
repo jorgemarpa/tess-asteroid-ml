@@ -149,9 +149,8 @@ def get_asteroid_table(
 ):
     scc_str = f"s{sector:04}-{camera}-{ccd}"
     jpl_sbi_file = f"{os.path.dirname(PACKAGEDIR)}/data/jpl/jpl_small_bodies_tess_{scc_str}_catalog.csv"
-    print(jpl_sbi_file)
     if os.path.isfile(jpl_sbi_file):
-        print("Loading from CSV file...")
+        print(f"Loading from CSV file: {jpl_sbi_file}")
         jpl_sb = pd.read_csv(jpl_sbi_file)
     else:
         jpl_sb = query_jpl_sbi(
@@ -191,7 +190,7 @@ def get_FFI_name(sector: int = 1, camera: int = 1, ccd: int = 1):
     Finds an FFI url in MAST archive to load as frame of reference.
     """
     root_path = "https://archive.stsci.edu/missions/tess/ffi"
-    sector_dates = get_sector_dates(sector=43)
+    sector_dates = get_sector_dates(sector=sector)
     yyyy, ddd, hh, mm, ss = sector_dates[1].yday.split(":")
     dir_path = f"{root_path}/s{sector:04}/{yyyy}/{ddd}/{camera}-{ccd}"
     response = requests.get(dir_path)
@@ -236,8 +235,8 @@ def get_asteroids_in_FFI(
     do_highres: bool = False,
     predict_times=None,
     sector: int = 1,
-    camera: int = 1,
-    ccd: int = 1,
+    camera: int = 0,
+    ccd: int = 0,
 ):
     """
     Creates a dictionary with asteroids track if the asteroid is observed on the FFI.
@@ -249,18 +248,20 @@ def get_asteroids_in_FFI(
         raise ValueError("Please provide at least two observing dates (start and end)")
 
     # low-res 1-day interval
-    print(sector_dates)
     days = np.ceil((sector_dates[-1] - sector_dates[0]).sec / (60 * 60 * 24))
     lowres_time = sector_dates[0] + np.arange(-1, days + 1, 1.0)
 
     sb_ephems = {}
+    track_file_root = f"{os.path.dirname(PACKAGEDIR)}/data/jpl/tracks/sector{sector:04}"
+    if not os.path.isfile(track_file_root):
+        os.mkdirs(track_file_root)
 
     for k, row in tqdm(df.iterrows(), total=len(df), desc="JPL query"):
         # if k > 50:
         #     break
         # read file with asteroid track from disk if exists
         track_file = (
-            f"{os.path.dirname(PACKAGEDIR)}/data/jpl/tracks/"
+            f"{track_file_root}/"
             f"tess-ffi_s{sector:04}-{camera}-{ccd}_{row['id'].replace(' ', '-')}_"
             f"{'hi' if do_highres else 'lo'}res.feather"
         )
@@ -293,8 +294,9 @@ def get_asteroids_in_FFI(
                 aberrate=True,
                 verbose=True,
             )
-            # filter by camera/ccd
-            ephems_aux = ephems_aux.query(f"camera == {camera} and ccd == {ccd}")
+            # filter by camera/ccd, if both 0 will save the full sector
+            if camera != 0 and ccd != 0:
+                ephems_aux = ephems_aux.query(f"camera == {camera} and ccd == {ccd}")
             if len(ephems_aux) == 0:
                 continue
             # predict with high-res
