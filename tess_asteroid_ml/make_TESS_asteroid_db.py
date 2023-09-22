@@ -1,13 +1,13 @@
 import os
 import argparse
 import tempfile
-import requests
+import s3fs
 
 # import nest_asyncio
 import numpy as np
-import numpy.typing as npt
 import pandas as pd
 import matplotlib.pyplot as plt
+import matplotlib.colors as colors
 import lightkurve as lk
 import astropy.units as u
 from astropy.coordinates import SkyCoord
@@ -22,55 +22,10 @@ from matplotlib.backends.backend_pdf import FigureCanvasPdf, PdfPages
 from astroquery.jplhorizons import Horizons
 from sbident import SBIdent
 
+import tess_cloud
 from tess_ephem import TessEphem
-from tess_asteroid_ml import *
+from tess_asteroid_ml import PACKAGEDIR
 from tess_asteroid_ml.utils import in_cutout, load_ffi_image
-
-
-def get_cutouts(
-    target_dict: dict, sector: int = 1, cam_ccd: str = "1-1", cutout_size=50
-):
-    """
-    Downloads a TESS cut using AstroCut
-    """
-    # We need nest_asyncio for AWS access within Jupyter
-    # nest_asyncio.apply()
-    # Create a "cutout factory" to generate cutouts
-    factory = CutoutFactory()
-    cube_file = (
-        f"s3://stpubdata/tess/public/mast/tess-s{sector:04d}-{camera_ccd}-cube.fits"
-    )
-    for k, v in target_dict.items():
-        factory.cube_cut(
-            cube_file=cube_file,
-            coordinates=v,
-            cutout_size=cutout_size,
-            target_pixel_file=f"./data/TESScut_s{sector:04}-{cam_ccd}_{k}_{cutout_size}x{cutout_size}pix.fits",
-        )
-
-
-def get_cutout_centers(
-    ncol: int = 2048,
-    nrow: int = 2048,
-    sampling: str = "tiled",
-    overlap: int = 0,
-    size: int = 50,
-    ncuts: int = 20,
-):
-    """
-    Get the i,j of the centers for a sample of cutouts given a cutout size and a
-    sampling strategy.
-    """
-    if sampling == "tiled":
-        dx = 2
-        xcen = np.arange(dx, ncol - dx, size - overlap)
-        ycen = np.arange(dx, nrow - dx, size - overlap)
-    elif sampling == "random":
-        xcen, ycen = np.random.randint(0 + dx, ncol - dx, (2, ncuts))
-    else:
-        raise NotImplementedError
-    xcen, ycen = np.meshgrid(xcen, ycen)
-    return xcen, ycen
 
 
 def query_jpl_sbi(
@@ -162,6 +117,7 @@ def get_asteroid_table(
         if save:
             print(f"Saving to {jpl_sbi_file}")
             jpl_sb.to_csv(jpl_sbi_file)
+    print(f"JPL SBI found {len(jpl_sb)} asteroids with V < {maglim} in {scc_str}")
     return jpl_sb
 
 
@@ -185,22 +141,74 @@ def get_sector_dates(sector: int = 1):
     )
 
 
-def get_FFI_name(sector: int = 1, camera: int = 1, ccd: int = 1):
-    """
-    Finds an FFI url in MAST archive to load as frame of reference.
-    """
-    root_path = "https://archive.stsci.edu/missions/tess/ffi"
-    sector_dates = get_sector_dates(sector=sector)
-    yyyy, ddd, hh, mm, ss = sector_dates[1].yday.split(":")
-    dir_path = f"{root_path}/s{sector:04}/{yyyy}/{ddd}/{camera}-{ccd}"
-    response = requests.get(dir_path)
-    for k in response.iter_lines():
-        if "ffic.fits" in k.decode():
-            ffi_name = k.decode().split("\"")[5]
-            break
+def get_FFI_name(
+    sector: int = 1, camera: int = 1, ccd: int = 0, correct=True, provider="mast"
+):
+    if ccd == 0:
+        files = [
+            tess_cloud.list_images(sector=sector, camera=1, ccd=ccd, author="spoc")
+            for ccd in range(1, 5)
+        ]
+        frame = len(files[0]) // 2
+        file_name = [x[frame].filename for x in files]
 
-    ffi_path = f"{dir_path}/{ffi_name}"
-    return ffi_path
+    else:
+        files = tess_cloud.list_images(sector=sector, camera=1, ccd=ccd, author="spoc")
+        frame = len(files) // 2
+        file_name = files[frame].filename
+
+    if correct:
+        aux = []
+        for fn in file_name:
+            date_o = fn[4:17]
+            date_n = str(int(date_o) - 1)
+            yyyy = date_o[:4]
+            ddd = date_o[4:7]
+            camera = fn.split("-")[2]
+            ccd = fn.split("-")[3]
+            dir_path = f"ffi/s{sector:04}/{yyyy}/{ddd}/{camera}-{ccd}"
+            aux.append(f"{dir_path}/{fn.replace(date_o, date_n)}")
+
+        file_name = aux
+    if provider == "mast":
+        root_path = "https://archive.stsci.edu/missions/tess"
+    elif provider == "aws":
+        root_path = "s3://stpubdata/tess/public"
+    file_name = [f"{root_path}/{x}" for x in file_name]
+
+    return file_name
+
+
+def get_data_from_files(file_list, provider="mast"):
+    r_min = 0
+    r_max = 2048
+    c_min = 44
+    c_max = 2092
+    row_2d, col_2d = np.mgrid[r_min:r_max, c_min:c_max]
+    ffi_headers = []
+    ffi_flux = []
+    ffi_ra_2d, ffi_dec_2d = [], []
+    for file in file_list:
+
+        if provider == "mast":
+            ffi_headers.append(fits.getheader(file))
+            ffi_flux.append(fits.getdata(file)[r_min:r_max, c_min:c_max])
+            wcs = WCS(fits.getheader(file, ext=1))
+        else:
+            fs = s3fs.S3FileSystem(anon=True)
+            with tempfile.NamedTemporaryFile(mode="wb") as tmp:
+                f = fs.get(file, tmp.name)
+                ffi_headers.append(fits.getheader(tmp.name))
+                ffi_flux.append(fits.getdata(tmp.name)[r_min:r_max, c_min:c_max])
+                wcs = WCS(fits.getheader(tmp.name, ext=1))
+
+        ra_2d, dec_2d = wcs.all_pix2world(
+            np.vstack([col_2d.ravel(), row_2d.ravel()]).T, 0.0
+        ).T
+        ffi_ra_2d.append(ra_2d.reshape(col_2d.shape))
+        ffi_dec_2d.append(dec_2d.reshape(col_2d.shape))
+
+    return ffi_headers, ffi_flux, col_2d, row_2d, ffi_ra_2d, ffi_dec_2d
 
 
 def get_sector_time_array(
@@ -229,8 +237,6 @@ def get_sector_time_array(
 
 def get_asteroids_in_FFI(
     df,
-    ffi_row: Optional[npt.ArrayLike] = None,
-    ffi_col: Optional[npt.ArrayLike] = None,
     sector_dates: Optional[Time] = None,
     do_highres: bool = False,
     predict_times=None,
@@ -249,13 +255,14 @@ def get_asteroids_in_FFI(
 
     # low-res 1-day interval
     days = np.ceil((sector_dates[-1] - sector_dates[0]).sec / (60 * 60 * 24))
-    lowres_time = sector_dates[0] + np.arange(-1, days + 1, 1.0)
+    lowres_time = sector_dates[0] + np.arange(0, days, 1.0)
 
-    sb_ephems = {}
     track_file_root = f"{os.path.dirname(PACKAGEDIR)}/data/jpl/tracks/sector{sector:04}"
-    if not os.path.isfile(track_file_root):
-        os.mkdirs(track_file_root)
+    if not os.path.isdir(track_file_root):
+        os.makedirs(track_file_root)
 
+    print(f"Will find asteroid tracks as check if are on FFI...")
+    sb_ephems = {}
     for k, row in tqdm(df.iterrows(), total=len(df), desc="JPL query"):
         # if k > 50:
         #     break
@@ -280,6 +287,8 @@ def get_asteroids_in_FFI(
                 )
                 name_ok = row['id']
             except ValueError:
+                pass
+            try:
                 te = TessEphem(
                     row['name'],
                     start=sector_dates[0],
@@ -288,12 +297,18 @@ def get_asteroids_in_FFI(
                     id_type="smallbody",
                 )
                 name_ok = row['name']
+            except ValueError:
+                continue
             # predict asteroid position in the sector with low res
-            ephems_aux = te.predict(
-                time=lowres_time,
-                aberrate=True,
-                verbose=True,
-            )
+            try:
+                ephems_aux = te.predict(
+                    time=lowres_time,
+                    aberrate=True,
+                    verbose=True,
+                )
+            except SystemExit:
+                print(f"`tess_stars2px` failed for {name_ok}. Continuing...")
+                continue
             # filter by camera/ccd, if both 0 will save the full sector
             if camera != 0 and ccd != 0:
                 ephems_aux = ephems_aux.query(f"camera == {camera} and ccd == {ccd}")
@@ -301,22 +316,17 @@ def get_asteroids_in_FFI(
                 continue
             # predict with high-res
             if do_highres and predict_times is not None:
-                is_in = in_cutout(
-                    ffi_col, ffi_row, ephems_aux.column.values, ephems_aux.row.values
+                ephems_aux = te.predict(
+                    time=predict_times,
+                    aberrate=True,
+                    verbose=True,
                 )
-                # check if track is on the FFI
-                if is_in:
-                    ephems_aux = te.predict(
-                        time=predict_times,
-                        aberrate=True,
-                        verbose=True,
-                    )
             ephems_aux = ephems_aux.reset_index()
             ephems_aux["time"] = [x.jd for x in ephems_aux["time"].values]
             ephems_aux.to_feather(track_file)
+
         sb_ephems[k] = ephems_aux
-    else:
-        return sb_ephems
+    return sb_ephems
 
 
 def create_FFI_asteroid_database(
@@ -325,52 +335,35 @@ def create_FFI_asteroid_database(
     ccd: int = 1,
     plot: bool = True,
     maglim: float = 22,
+    provider: str = "mast",
 ):
 
     # get FFI file path
-    sector_dates = get_sector_dates(sector=1)
-    yyyy, ddd, hh, mm, ss = sector_dates.mean().yday.split(":")
-    path = "https://archive.stsci.edu/missions/tess/ffi/"
-    ffi_file = get_FFI_name(sector=sector, camera=camera, ccd=ccd)
+    sector_dates = get_sector_dates(sector=sector)
+    ffi_file = get_FFI_name(sector=sector, camera=camera, ccd=ccd, provider=provider)
     print(ffi_file)
 
     # read FFI to get time, WCS and header
-    with fits.open(ffi_file, mode="readonly") as hdulist:
-        wcs = WCS(hdulist[1])
-        ffi_date = Time([hdulist[1].header["DATE-OBS"], hdulist[1].header["DATE-END"]])
-        ffi_header = hdulist[1].header
-
-    # load flux, columns and rows
-    col_2d, row_2d, f2d = load_ffi_image(
-        "TESS",
-        ffi_file,
-        1,
-        None,
-        [0, 0],
-        return_coords=True,
+    ffi_header, f2d, col_2d, row_2d, ra_2d, dec_2d = get_data_from_files(
+        ffi_file, provider=provider
     )
-    # convert to ra, dec
-    ra_2d, dec_2d = wcs.all_pix2world(
-        np.vstack([col_2d.ravel(), row_2d.ravel()]).T, 0.0
-    ).T
-    ra_2d = ra_2d.reshape(col_2d.shape)
-    dec_2d = dec_2d.reshape(col_2d.shape)
+    ffi_date = Time([ffi_header[0]["DATE-OBS"], ffi_header[0]["DATE-END"]])
 
     # get asteroid table from JPL SBI for Sector/Camera/CCD
     jpl_df = get_asteroid_table(
-        SkyCoord(ra_2d.min() * u.deg, dec_2d.min() * u.deg, frame='icrs'),
-        SkyCoord(ra_2d.max() * u.deg, dec_2d.max() * u.deg, frame='icrs'),
+        SkyCoord(np.min(ra_2d) * u.deg, np.min(dec_2d) * u.deg, frame='icrs'),
+        SkyCoord(np.max(ra_2d) * u.deg, np.max(dec_2d) * u.deg, frame='icrs'),
         sector=sector,
         camera=camera,
         ccd=ccd,
-        date_obs=ffi_date.mean().isot,
+        date_obs=ffi_date.mean().jd,
     )
     # filter bright ateroids, 30 is the mag limit in the original JPL query
     if maglim <= 30:
         asteroid_df = jpl_df.query(f"V_mag <= {maglim}")
 
     time = get_sector_time_array(
-        f"{ra_2d[1000, 900]:.5f} {dec_2d[1000, 900]:.5f}",
+        f"{ra_2d[0][1000, 900]:.5f} {dec_2d[0][1000, 900]:.5f}",
         sector=sector,
         camera=camera,
         ccd=camera,
@@ -380,14 +373,12 @@ def create_FFI_asteroid_database(
     # get tracks of asteroids on the FFI between observing dates
     asteroid_tracks = get_asteroids_in_FFI(
         asteroid_df,
-        row_2d.ravel(),
-        col_2d.ravel(),
         get_sector_dates(sector=sector),
         do_highres=True,
         predict_times=time,
         sector=sector,
-        camera=camera,
-        ccd=ccd,
+        camera=0,
+        ccd=0,
     )
     print(f"Total asteroids (V < {maglim}) in FFI: {len(asteroid_tracks)}")
 
@@ -395,11 +386,12 @@ def create_FFI_asteroid_database(
     if plot:
         fig_path = f"{os.path.dirname(PACKAGEDIR)}/data/figures"
         if not os.path.isdir(fig_path):
-            os.mkdirs(fig_path)
+            os.makedirs(fig_path)
 
         file_name = f"{fig_path}/{global_name}_diagnostic_plot.pdf"
+        print(f"Saving figures to {file_name}")
         with PdfPages(file_name) as pages:
-            fig_dist, ax = plt.subplots(1, 3, figsize=(16, 3))
+            fig_dist, ax = plt.subplots(1, 3, figsize=(16, 3), constrained_layout=True)
             fig_dist.suptitle(
                 f"Asteroids Distributions in Sector {sector} Camera {camera} CCD {ccd}"
             )
@@ -418,66 +410,92 @@ def create_FFI_asteroid_database(
             FigureCanvasPdf(fig_dist).print_figure(pages)
             plt.close()
 
-            fig_ima = plt.figure(figsize=(7, 7))
-            plt.title(f"Asteroid tracks in Sector {sector} Camera {camera} CCD {ccd}")
-            plt.pcolormesh(
-                col_2d,
-                row_2d,
-                f2d,
-                vmin=400,
-                vmax=2000,
-                cmap="Greys_r",
-                rasterized=True,
-            )
+            if ccd > 0:
+                fig_ima = plt.figure(figsize=(7, 7), constrained_layout=True)
+                plt.title(
+                    f"Asteroid tracks in Sector {sector} Camera {camera} CCD {ccd}"
+                )
+                plt.pcolormesh(
+                    col_2d,
+                    row_2d,
+                    f2d[0],
+                    vmin=400,
+                    vmax=2000,
+                    cmap="Greys_r",
+                    rasterized=True,
+                )
 
-            for k, val in asteroid_tracks.items():
-                if len(val) == 0:
-                    continue
-                n = 50 if len(val.column) > 1000 else 1
-                plt.plot(val.column[::n], val.row[::n], ".-", ms=0.5, rasterized=True)
-                # if k == 1: break
+                for k, val in asteroid_tracks.items():
+                    if len(val) == 0:
+                        continue
+                    n = 50 if len(val.column) > 1000 else 1
+                    plt.plot(
+                        val.column[::n],
+                        val.row[::n],
+                        marker=".",
+                        linewidth=1,
+                        markersize=0.1,
+                        rasterized=True,
+                    )
+                    # if k == 1: break
 
-            plt.xlim(col_2d.min() - 10, col_2d.max() + 10)
-            plt.ylim(row_2d.min() - 10, row_2d.max() + 10)
-            plt.gca().set_aspect('equal')
-            plt.xlabel("Pixel Column")
-            plt.ylabel("Pixel Row")
-            FigureCanvasPdf(fig_ima).print_figure(pages)
-            plt.close()
+                plt.xlim(col_2d.min() - 10, col_2d.max() + 10)
+                plt.ylim(row_2d.min() - 10, row_2d.max() + 10)
+                plt.gca().set_aspect('equal')
+                plt.xlabel("Pixel Column")
+                plt.ylabel("Pixel Row")
+                FigureCanvasPdf(fig_ima).print_figure(pages)
+                plt.close()
+            else:
+                fig_ima, ax = plt.subplots(
+                    2,
+                    2,
+                    figsize=(7, 7),
+                    sharex=True,
+                    sharey=True,
+                    constrained_layout=True,
+                )
+                fig_ima.suptitle(f"Asteroid tracks in Sector {sector} Camera {camera}")
+                for i, axis in enumerate(ax.ravel()):
+                    axis.pcolormesh(
+                        col_2d,
+                        row_2d,
+                        f2d[i],
+                        # vmin=400,
+                        # vmax=2000,
+                        cmap="Greys_r",
+                        norm=colors.SymLogNorm(
+                            linthresh=1000, vmin=100, vmax=2500, base=10
+                        ),
+                        rasterized=True,
+                    )
+
+                    for k, val in asteroid_tracks.items():
+                        val = val.query(f"ccd == {i + 1}")
+                        if len(val) == 0:
+                            continue
+                        n = 50 if len(val.column) > 1000 else 1
+                        axis.plot(
+                            val.column[::n],
+                            val.row[::n],
+                            ".-",
+                            ms=0.4,
+                            lw=0.2,
+                            rasterized=True,
+                        )
+                    # if k == 1: break
+
+                ax[0, 0].set_xlim(col_2d.min() - 10, col_2d.max() + 10)
+                ax[0, 0].set_ylim(row_2d.min() - 10, row_2d.max() + 10)
+                ax[0, 0].set_aspect("equal", adjustable="box")
+                ax[1, 0].set_xlabel("Pixel Column")
+                ax[1, 1].set_xlabel("Pixel Column")
+                ax[0, 0].set_ylabel("Pixel Row")
+                ax[1, 0].set_ylabel("Pixel Row")
+                FigureCanvasPdf(fig_ima).print_figure(pages)
+                plt.close()
 
     print("Done!")
-    return
-
-
-def create_cutout_data(
-    sector: int = 1,
-    camera: int = 1,
-    ccd: int = 1,
-    cutout_size: int = 50,
-    maglim: float = 22,
-):
-    jpl_df = get_asteroid_table(
-        SkyCoord(ra_2d.min() * u.deg, dec_2d.min() * u.deg, frame='icrs'),
-        SkyCoord(ra_2d.max() * u.deg, dec_2d.max() * u.deg, frame='icrs'),
-        sector=sector,
-        camera=camera,
-        ccd=ccd,
-    )
-    if maglim <= 24:
-        asteroid_df = jpl_df.query("V_mag <= 18")
-
-    asteroid_tracks = get_asteroids_in_FFI(
-        asteroid_df,
-        row_2d.ravel(),
-        col_2d.ravel(),
-        get_sector_dates(sector=sector),
-        do_highres=True,
-        predict_times=None,
-        sector=sector,
-        camera=camera,
-        ccd=ccd,
-    )
-
     return
 
 
@@ -530,4 +548,5 @@ if __name__ == "__main__":
             sector=args.sector,
             camera=args.camera,
             ccd=args.ccd,
+            plot=False,
         )
