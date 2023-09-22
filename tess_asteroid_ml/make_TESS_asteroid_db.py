@@ -474,13 +474,13 @@ def create_FFI_asteroid_database(
                         val = val.query(f"ccd == {i + 1}")
                         if len(val) == 0:
                             continue
-                        n = 50 if len(val.column) > 1000 else 1
+                        # n = 50 if len(val.column) > 1000 else 1
                         axis.plot(
-                            val.column[::n],
-                            val.row[::n],
+                            val.column,
+                            val.row,
                             ".-",
-                            ms=0.4,
-                            lw=0.2,
+                            ms=0.2,
+                            lw=0.1,
                             rasterized=True,
                         )
                     # if k == 1: break
@@ -525,28 +525,10 @@ if __name__ == "__main__":
         default=None,
         help="TESS CCD number",
     )
-    parser.add_argument(
-        "--cutout-size",
-        dest="cutout_size",
-        type=int,
-        default=None,
-        help="Cutout size in pixels",
-    )
-    parser.add_argument(
-        "--make-db",
-        dest="make_db",
-        action="store_true",
-        default=False,
-        help=(
-            "Creates the asteroid tracks data base."
-            "You should run this only one time per Sector/Camera/CCD"
-        ),
-    )
     args = parser.parse_args()
-    if args.make_db:
-        create_FFI_asteroid_database(
-            sector=args.sector,
-            camera=args.camera,
-            ccd=args.ccd,
-            plot=False,
-        )
+    create_FFI_asteroid_database(
+        sector=args.sector,
+        camera=args.camera,
+        ccd=args.ccd,
+        plot=False,
+    )
