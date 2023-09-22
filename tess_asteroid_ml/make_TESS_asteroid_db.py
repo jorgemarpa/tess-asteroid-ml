@@ -157,24 +157,25 @@ def get_FFI_name(
         frame = len(files) // 2
         file_name = files[frame].filename
 
-    if correct:
-        aux = []
-        for fn in file_name:
-            date_o = fn[4:17]
-            date_n = str(int(date_o) - 1)
-            yyyy = date_o[:4]
-            ddd = date_o[4:7]
-            camera = fn.split("-")[2]
-            ccd = fn.split("-")[3]
-            dir_path = f"ffi/s{sector:04}/{yyyy}/{ddd}/{camera}-{ccd}"
-            aux.append(f"{dir_path}/{fn.replace(date_o, date_n)}")
-
-        file_name = aux
     if provider == "mast":
         root_path = "https://archive.stsci.edu/missions/tess"
     elif provider == "aws":
         root_path = "s3://stpubdata/tess/public"
-    file_name = [f"{root_path}/{x}" for x in file_name]
+
+    aux = []
+    for fn in file_name:
+        date_o = fn[4:17]
+        date_n = str(int(date_o) - 1)
+        yyyy = date_o[:4]
+        ddd = date_o[4:7]
+        if correct:
+            fn = fn.replace(date_o, date_n)
+        camera = fn.split("-")[2]
+        ccd = fn.split("-")[3]
+        dir_path = f"ffi/s{sector:04}/{yyyy}/{ddd}/{camera}-{ccd}"
+        aux.append(f"{root_path}/{dir_path}/{fn}")
+
+    file_name = aux
 
     return file_name
 
