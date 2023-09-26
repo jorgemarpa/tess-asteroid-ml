@@ -62,7 +62,6 @@ def query_jpl_sbi(
         precision="high",
         request=True,
     )
-
     jpl_sb = sbid3.results.to_pandas()
 
     # parse columns
@@ -106,7 +105,7 @@ def get_asteroid_table(
     jpl_sbi_file = f"{os.path.dirname(PACKAGEDIR)}/data/jpl/jpl_small_bodies_tess_{scc_str}_catalog.csv"
     if os.path.isfile(jpl_sbi_file):
         print(f"Loading from CSV file: {jpl_sbi_file}")
-        jpl_sb = pd.read_csv(jpl_sbi_file)
+        jpl_sb = pd.read_csv(jpl_sbi_file, index_col=0)
     else:
         jpl_sb = query_jpl_sbi(
             edge1,
@@ -142,7 +141,7 @@ def get_sector_dates(sector: int = 1):
 
 
 def get_FFI_name(
-    sector: int = 1, camera: int = 1, ccd: int = 0, correct=True, provider="mast"
+    sector: int = 1, camera: int = 1, ccd: int = 0, correct=False, provider="mast"
 ):
     if ccd == 0:
         files = [
@@ -156,6 +155,8 @@ def get_FFI_name(
         files = tess_cloud.list_images(sector=sector, camera=1, ccd=ccd, author="spoc")
         frame = len(files) // 2
         file_name = files[frame].filename
+    if not isinstance(file_name, list):
+        file_name = [file_name]
 
     if provider == "mast":
         root_path = "https://archive.stsci.edu/missions/tess"
@@ -165,10 +166,10 @@ def get_FFI_name(
     aux = []
     for fn in file_name:
         date_o = fn[4:17]
-        date_n = str(int(date_o) - 1)
         yyyy = date_o[:4]
         ddd = date_o[4:7]
         if correct:
+            date_n = str(int(date_o) - 1)
             fn = fn.replace(date_o, date_n)
         camera = fn.split("-")[2]
         ccd = fn.split("-")[3]
@@ -238,7 +239,6 @@ def get_sector_time_array(
 
 def get_asteroids_in_FFI(
     df,
-    sector_dates: Optional[Time] = None,
     do_highres: bool = False,
     predict_times=None,
     sector: int = 1,
@@ -251,12 +251,9 @@ def get_asteroids_in_FFI(
     the asteroid location in pixel coordinates.
     """
 
-    if len(sector_dates) < 2:
-        raise ValueError("Please provide at least two observing dates (start and end)")
-
     # low-res 1-day interval
-    days = np.ceil((sector_dates[-1] - sector_dates[0]).sec / (60 * 60 * 24))
-    lowres_time = sector_dates[0] + np.arange(0, days, 1.0)
+    days = np.ceil((predict_times[-1] - predict_times[0]).sec / (60 * 60 * 24))
+    lowres_time = predict_times[0] + np.arange(0, days, 1.0) * u.d
 
     track_file_root = f"{os.path.dirname(PACKAGEDIR)}/data/jpl/tracks/sector{sector:04}"
     if not os.path.isdir(track_file_root):
@@ -281,25 +278,25 @@ def get_asteroids_in_FFI(
             try:
                 te = TessEphem(
                     row['id'],
-                    start=sector_dates[0],
-                    stop=sector_dates[-1],
+                    start=predict_times[0],
+                    stop=predict_times[-1],
                     step="12H",
                     id_type="smallbody",
                 )
                 name_ok = row['id']
             except ValueError:
-                pass
-            try:
-                te = TessEphem(
-                    row['name'],
-                    start=sector_dates[0],
-                    stop=sector_dates[-1],
-                    step="12H",
-                    id_type="smallbody",
-                )
-                name_ok = row['name']
-            except ValueError:
-                continue
+                try:
+                    te = TessEphem(
+                        row['name'],
+                        start=predict_times[0],
+                        stop=predict_times[-1],
+                        step="12H",
+                        id_type="smallbody",
+                    )
+                    name_ok = row['name']
+                except ValueError:
+                    print(f"Query failed for {row['Object name']}")
+                    continue
             # predict asteroid position in the sector with low res
             try:
                 ephems_aux = te.predict(
@@ -310,11 +307,6 @@ def get_asteroids_in_FFI(
             except SystemExit:
                 print(f"`tess_stars2px` failed for {name_ok}. Continuing...")
                 continue
-            # filter by camera/ccd, if both 0 will save the full sector
-            if camera != 0 and ccd != 0:
-                ephems_aux = ephems_aux.query(f"camera == {camera} and ccd == {ccd}")
-            if len(ephems_aux) == 0:
-                continue
             # predict with high-res
             if do_highres and predict_times is not None:
                 ephems_aux = te.predict(
@@ -322,6 +314,12 @@ def get_asteroids_in_FFI(
                     aberrate=True,
                     verbose=True,
                 )
+            # filter by camera/ccd, if both 0 will save the full sector
+            if camera != 0 and ccd != 0:
+                ephems_aux = ephems_aux.query(f"camera == {camera} and ccd == {ccd}")
+            if len(ephems_aux) == 0:
+                continue
+            # prepare to save into feather file
             ephems_aux = ephems_aux.reset_index()
             ephems_aux["time"] = [x.jd for x in ephems_aux["time"].values]
             ephems_aux.to_feather(track_file)
@@ -374,7 +372,6 @@ def create_FFI_asteroid_database(
     # get tracks of asteroids on the FFI between observing dates
     asteroid_tracks = get_asteroids_in_FFI(
         asteroid_df,
-        get_sector_dates(sector=sector),
         do_highres=True,
         predict_times=time,
         sector=sector,
