@@ -5,8 +5,10 @@ import lightkurve as lk
 import os
 import fitsio
 from tqdm import tqdm
+from typing import Optional
 from . import log, PACKAGEDIR
 from .utils import power_find, in_cutout
+from scipy.interpolate import CubicSpline
 
 cache = diskcache.Cache(directory="~/.tess-asteroid-ml-cache")
 
@@ -24,7 +26,8 @@ class AsteroidTESScut:
 
     def __init__(
         self,
-        target: str,
+        tpf: lk.TessTargetPixelFile = None,
+        target: str = "",
         sector: int = 1,
         cutout_size: int = 50,
         quality_bitmask=None,
@@ -74,20 +77,19 @@ class AsteroidTESScut:
         tpf: lightkurve.TargetPixelFile
             TPF.
         """
-        self.sector = sector
-        if cutout_size >= 100:
-            raise ValueError("Cutut size must be < 100 pix")
-        self.cutout_size = cutout_size
-
-        print("Querying TESScut")
-        self.target_str = target
-        if use_tike:
-            raise NotImplementedError
-        else:
-            tpf = tpf = lk.search_tesscut(target, sector=self.sector).download(
-                cutout_size=(self.cutout_size, self.cutout_size),
+        if isinstance(tpf, lk.targetpixelfile.TargetPixelFile):
+            self.tpf = tpf
+        elif isinstance(target, str):
+            print("Querying TESScut")
+            if cutout_size >= 100:
+                raise ValueError("Cutut size must be < 100 pix")
+            tpf = lk.search_tesscut(target, sector=sector).download(
+                cutout_size=(cutout_size, cutout_size),
                 quality_bitmask=quality_bitmask,
             )
+        self.target_str = tpf.targetid
+        self.sector = tpf.sector
+        self.cutout_size = tpf.shape[1]
         self.camera = tpf.camera
         self.ccd = tpf.ccd
         self.time = tpf.time.jd
@@ -107,6 +109,7 @@ class AsteroidTESScut:
         self.ra = self.ra.ravel()
         self.dec = self.dec.ravel()
         self.tpf = tpf
+        self.asteroid_mask = np.zeros_like(self.flux, dtype=np.int32)
 
     @property
     def shape(self):
@@ -131,6 +134,13 @@ class AsteroidTESScut:
     @property
     def dec_2d(self):
         return self.dec.reshape(self.cutout_size, self.cutout_size)
+
+    @property
+    def asteroid_mask_2d(self):
+        if hasattr(self, "asteroid_mask"):
+            return self.asteroid_mask.reshape(
+                self.ntimes, self.cutout_size, self.cutout_size
+            )
 
     def get_pos_corrs(self):
         """
@@ -218,31 +228,53 @@ class AsteroidTESScut:
         """
         if mask_type != "circular":
             raise NotImplementedError
+
         if not isinstance(asteroid_track, pd.DataFrame):
             raise ValueError("Input table must be a pandas DataFrame with column/row")
-        if len(asteroid_track) != self.ntimes:
-            print("Asteroid track has less times than TESScut. Will do interpolation")
-            raise NotImplementedError
 
-        if hasattr(self, "asteroid_mask"):
+        if len(asteroid_track) != self.ntimes:
+            # print("Asteroid track has less times than TESScut. Will do interpolation")
+            # interpolate to tess cut times using highres track
+            _colf = CubicSpline(asteroid_track.time.values, asteroid_track.column)
+            _rowf = CubicSpline(asteroid_track.time.values, asteroid_track.row)
+            # mask with intersection of times between track as tess cut
+            ti = np.where(self.time >= asteroid_track.time.values[0])[0][0]
+            tf = np.where(self.time >= asteroid_track.time.values[-1])[0][0]
+            tmask = np.zeros_like(self.time, dtype=bool)
+            tmask[ti:tf] = True
+            # interpolate
+            col_int = np.zeros_like(self.time)
+            row_int = np.zeros_like(self.time)
+            col_int[tmask] = _colf(self.time[tmask])
+            row_int[tmask] = _rowf(self.time[tmask])
+            # raise NotImplementedError
+        else:
+            # use values in track argument
+            tmask = np.ones_like(self.time, dtype=bool)
+            col_int = asteroid_track.column.values
+            row_int = asteroid_track.row.values
+
+        # check if Attributes exist if not create new
+        if hasattr(self, "asteroid_names"):
             asteroid_number = 2 ** (len(self.asteroid_names))
         else:
             asteroid_number = 2 ** 0
-            self.asteroid_mask = np.zeros_like(self.flux, dtype=int)
+            # self.asteroid_mask = np.zeros_like(self.flux, dtype=int)
             self.asteroid_names = {}
-        self.asteroid_names[asteroid_number] = name
+        self.asteroid_names.update({asteroid_number: name})
+        # iterate over times to fill up asteroid_mask
+        for i, t in enumerate(tmask):
+            # only use times within the track table
+            if t:
+                is_in = in_cutout(self.column, self.row, col_int[i], row_int[i])
+                if is_in:
+                    has_asteroid = np.where(
+                        np.hypot(self.column - col_int[i], self.row - row_int[i])
+                        < mask_radius
+                    )[0]
+                    self.asteroid_mask[i, has_asteroid] += asteroid_number
 
-        for i, (t, row) in tqdm(
-            enumerate(asteroid_track.iterrows()), total=len(asteroid_track)
-        ):
-            is_in = in_cutout(self.column, self.row, row["column"], row["row"])
-            if is_in:
-                has_asteroid = np.where(
-                    np.hypot(self.column - row["column"], self.row - row["row"])
-                    < mask_radius
-                )[0]
-                self.asteroid_mask[i, has_asteroid] += asteroid_number
-
+        # dictionary with time idx for each asteroid
         self.asteroid_time_idx = {}
         multiple_asteroid = [
             x for x in np.unique(self.asteroid_mask) if len(power_find(x)) > 1
@@ -302,11 +334,13 @@ class AsteroidTESScut:
         """
         if output is None:
             output = (
-                f"{os.path.dirname(PACKAGEDIR)}/data/tesscuts"
+                f"{os.path.dirname(PACKAGEDIR)}/data/asteroidcuts/sector{self.sector:04}"
                 f"/tess-cut_asteroid_data_s{self.sector:04}-{self.camera}-{self.ccd}"
                 f"_{self.ra.mean():.4f}_{self.dec.mean():.4f}"
                 f"_{self.cutout_size}x{self.cutout_size}pix.npz"
             )
+            if not os.path.isdir(os.path.dirname(output)):
+                os.makedirs(os.path.dirname(output))
 
         medatada = {
             "sector": self.sector,
