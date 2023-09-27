@@ -349,13 +349,25 @@ def create_FFI_asteroid_database(
     ffi_date = Time([ffi_header[0]["DATE-OBS"], ffi_header[0]["DATE-END"]])
 
     # get asteroid table from JPL SBI for Sector/Camera/CCD
+    edge1 = SkyCoord(np.min(ra_2d) * u.deg, np.min(dec_2d) * u.deg, frame='icrs')
+    edge2 = SkyCoord(np.max(ra_2d) * u.deg, np.max(dec_2d) * u.deg, frame='icrs')
+    # if sector raps around ra 360/0 edge find the right sector edges
+    if np.abs(edge1.ra - edge2.ra) > 180 * u.deg:
+        right_patch = np.array(ra_2d) >= 180
+
+        ra_2d_left = np.array(ra_2d)[~right_patch]
+        ra_2d_right = np.array(ra_2d)[right_patch]
+        dec_2d_left = np.array(dec_2d)[~right_patch]
+        dec_2d_right = np.array(dec_2d)[right_patch]
+        edge1 = SkyCoord(
+            np.min(ra_2d_right) * u.deg, np.min(dec_2d_right) * u.deg, frame='icrs'
+        )
+        edge2 = SkyCoord(
+            np.max(ra_2d_left) * u.deg, np.max(dec_2d_left) * u.deg, frame='icrs'
+        )
+
     jpl_df = get_asteroid_table(
-        SkyCoord(np.min(ra_2d) * u.deg, np.min(dec_2d) * u.deg, frame='icrs'),
-        SkyCoord(np.max(ra_2d) * u.deg, np.max(dec_2d) * u.deg, frame='icrs'),
-        sector=sector,
-        camera=camera,
-        ccd=ccd,
-        date_obs=ffi_date.mean().jd,
+        edge1, edge2, sector=sector, camera=camera, ccd=ccd, date_obs=ffi_date.mean().jd
     )
     # filter bright ateroids, 30 is the mag limit in the original JPL query
     if maglim <= 30:
