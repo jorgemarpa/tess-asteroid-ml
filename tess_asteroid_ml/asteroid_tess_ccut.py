@@ -283,13 +283,14 @@ class AsteroidTESScut:
             aux = np.where((self.asteroid_mask == n).any(axis=1))[0]
             if len(multiple_asteroid) > 0:
                 id_with_ast = [x for x in multiple_asteroid if n in power_find(x)]
-                aux_2 = np.hstack(
-                    [
-                        np.where((self.asteroid_mask == x).any(axis=1))[0]
-                        for x in id_with_ast
-                    ]
-                )
-                aux = np.concatenate([aux, aux_2])
+                if len(id_with_ast) > 0:
+                    aux_2 = np.hstack(
+                        [
+                            np.where((self.asteroid_mask == x).any(axis=1))[0]
+                            for x in id_with_ast
+                        ]
+                    )
+                    aux = np.concatenate([aux, aux_2])
             self.asteroid_time_idx[n] = np.sort(aux)
 
         return
