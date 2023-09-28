@@ -2,6 +2,7 @@
 
 data/figures
 data/tesscuts
+data/asteroidcuts
 data/jpl/.DS_Store
 data/jpl/tracks
 data/.DS_Store
