@@ -2,8 +2,8 @@ import os
 import argparse
 import tempfile
 import s3fs
+import time
 
-# import nest_asyncio
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -16,16 +16,15 @@ from astropy.io import fits
 from astropy.wcs import WCS
 from tqdm import tqdm
 from astrocut import CutoutFactory
-from typing import Optional
 from matplotlib.backends.backend_pdf import FigureCanvasPdf, PdfPages
 
 from astroquery.jplhorizons import Horizons
+from requests.exceptions import ConnectTimeout
 from sbident import SBIdent
 
 import tess_cloud
 from tess_ephem import TessEphem
 from tess_asteroid_ml import PACKAGEDIR
-from tess_asteroid_ml.utils import in_cutout, load_ffi_image
 
 
 def query_jpl_sbi(
@@ -271,11 +270,22 @@ def get_asteroids_in_FFI(
             f"{'hi' if do_highres else 'lo'}res.feather"
         )
         if os.path.isfile(track_file):
-            ephems_aux = pd.read_feather(track_file)
+            # ephems_aux = pd.read_feather(track_file)
+            continue
         # query JPL if not
         else:
             # query JPL to get asteroid track within sector times every 12h
             try:
+                te = TessEphem(
+                    row['id'],
+                    start=predict_times[0],
+                    stop=predict_times[-1],
+                    step="12H",
+                    id_type="smallbody",
+                )
+                name_ok = row['id']
+            except ConnectTimeout:
+                time.sleep(5)
                 te = TessEphem(
                     row['id'],
                     start=predict_times[0],
@@ -324,7 +334,7 @@ def get_asteroids_in_FFI(
             ephems_aux["time"] = [x.jd for x in ephems_aux["time"].values]
             ephems_aux.to_feather(track_file)
 
-        sb_ephems[k] = ephems_aux
+        # sb_ephems[k] = ephems_aux
     return sb_ephems
 
 
@@ -540,5 +550,7 @@ if __name__ == "__main__":
         sector=args.sector,
         camera=args.camera,
         ccd=args.ccd,
+        maglim=22,
+        provider="mast",
         plot=False,
     )
