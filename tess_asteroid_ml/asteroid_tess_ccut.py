@@ -109,7 +109,7 @@ class AsteroidTESScut:
         self.ra = self.ra.ravel()
         self.dec = self.dec.ravel()
         self.tpf = tpf
-        self.asteroid_mask = np.zeros_like(self.flux, dtype=np.int32)
+        self.asteroid_mask = np.zeros_like(self.flux, dtype=np.int64)
 
     @property
     def shape(self):
