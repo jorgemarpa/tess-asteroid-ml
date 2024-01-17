@@ -19,7 +19,7 @@ from astrocut import CutoutFactory
 from matplotlib.backends.backend_pdf import FigureCanvasPdf, PdfPages
 
 from astroquery.jplhorizons import Horizons
-from requests.exceptions import ConnectTimeout
+from requests.exceptions import ConnectTimeout, ReadTimeout, Timeout, ConnectionError
 from sbident import SBIdent
 
 import tess_cloud
@@ -28,7 +28,7 @@ from tess_asteroid_ml import PACKAGEDIR
 
 
 def query_jpl_sbi(
-    edge1: SkyCoord, edge2: SkyCoord, obstime: float = 2459490, maglim: float = 24
+    edge1: SkyCoord, edge2: SkyCoord, obstime: float = 2459490, maglim: float = 30
 ):
     print("Requesting JPL Smal-bodies API")
 
@@ -53,15 +53,42 @@ def query_jpl_sbi(
     xobs = ','.join([np.format_float_scientific(s, precision=5) for s in tess_km])
     xobs_location = {'xobs': xobs}
 
-    sbid3 = SBIdent(
-        location=xobs_location,
-        obstime=obstime,
-        fov=[edge1, edge2],
-        maglim=maglim,
-        precision="high",
-        request=True,
-    )
-    jpl_sb = sbid3.results.to_pandas()
+    if edge2.ra - edge1.ra > 90 * u.deg:
+        # split into 2 seg if range of ra is too big
+        full_range = edge2.ra - edge1.ra
+        aux_sbid3 = []
+        n = 3
+        edge11 = edge1
+        edge22 = SkyCoord(edge11.ra + full_range / n, edge2.dec, frame='icrs')
+        for k in range(n):
+            aux_sbid3.append(
+                SBIdent(
+                    location=xobs_location,
+                    obstime=obstime,
+                    fov=[edge11, edge22],
+                    maglim=maglim,
+                    precision="high",
+                    request=True,
+                )
+            )
+            edge11 = SkyCoord(edge22.ra, edge1.dec, frame='icrs')
+            edge22 = SkyCoord(
+                edge11.ra + (n + 1) * (full_range / n), edge2.dec, frame='icrs'
+            )
+
+        jpl_sb = pd.concat([x.results.to_pandas() for x in aux_sbid3], axis=0)
+    else:
+        sbid3 = SBIdent(
+            location=xobs_location,
+            obstime=obstime,
+            fov=[edge1, edge2],
+            maglim=maglim,
+            precision="high",
+            request=True,
+        )
+        jpl_sb = sbid3.results.to_pandas()
+    if len(jpl_sb) == 0:
+        raise ValueError("Empty result from JPL")
 
     # parse columns
     jpl_sb["Astrometric Dec (dd mm\'ss\")"] = [
@@ -144,14 +171,16 @@ def get_FFI_name(
 ):
     if ccd == 0:
         files = [
-            tess_cloud.list_images(sector=sector, camera=1, ccd=ccd, author="spoc")
+            tess_cloud.list_images(sector=sector, camera=camera, ccd=ccd, author="spoc")
             for ccd in range(1, 5)
         ]
         frame = len(files[0]) // 2
         file_name = [x[frame].filename for x in files]
 
     else:
-        files = tess_cloud.list_images(sector=sector, camera=1, ccd=ccd, author="spoc")
+        files = tess_cloud.list_images(
+            sector=sector, camera=camera, ccd=ccd, author="spoc"
+        )
         frame = len(files) // 2
         file_name = files[frame].filename
     if not isinstance(file_name, list):
@@ -266,7 +295,7 @@ def get_asteroids_in_FFI(
         # read file with asteroid track from disk if exists
         track_file = (
             f"{track_file_root}/"
-            f"tess-ffi_s{sector:04}-{camera}-{ccd}_{row['id'].replace(' ', '-')}_"
+            f"tess-ffi_s{sector:04}-{camera}-{ccd}_{row['id'].replace(' ', '-').replace('/', '-')}_"
             f"{'hi' if do_highres else 'lo'}res.feather"
         )
         if os.path.isfile(track_file):
@@ -284,16 +313,22 @@ def get_asteroids_in_FFI(
                     id_type="smallbody",
                 )
                 name_ok = row['id']
-            except ConnectTimeout:
-                time.sleep(5)
-                te = TessEphem(
-                    row['id'],
-                    start=predict_times[0],
-                    stop=predict_times[-1],
-                    step="12H",
-                    id_type="smallbody",
-                )
-                name_ok = row['id']
+            except (
+                ConnectTimeout,
+                ReadTimeout,
+                Timeout,
+                ConnectionError,
+            ):  # MaxRetryError
+                continue
+                # time.sleep(5)
+                # te = TessEphem(
+                #     row['id'],
+                #     start=predict_times[0],
+                #     stop=predict_times[-1],
+                #     step="12H",
+                #     id_type="smallbody",
+                # )
+                # name_ok = row['id']
             except ValueError:
                 try:
                     te = TessEphem(
@@ -316,6 +351,8 @@ def get_asteroids_in_FFI(
                 )
             except SystemExit:
                 print(f"`tess_stars2px` failed for {name_ok}. Continuing...")
+                continue
+            if len(ephems_aux) == 0:
                 continue
             # predict with high-res
             if do_highres and predict_times is not None:
@@ -348,7 +385,6 @@ def create_FFI_asteroid_database(
 ):
 
     # get FFI file path
-    sector_dates = get_sector_dates(sector=sector)
     ffi_file = get_FFI_name(sector=sector, camera=camera, ccd=ccd, provider=provider)
     print(ffi_file)
 
@@ -382,6 +418,7 @@ def create_FFI_asteroid_database(
     # filter bright ateroids, 30 is the mag limit in the original JPL query
     if maglim <= 30:
         asteroid_df = jpl_df.query(f"V_mag <= {maglim}")
+    asteroid_df = asteroid_df.sort_values("V_mag")
 
     time = get_sector_time_array(
         f"{ra_2d[0][1000, 900]:.5f} {dec_2d[0][1000, 900]:.5f}",

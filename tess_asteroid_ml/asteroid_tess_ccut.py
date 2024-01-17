@@ -9,6 +9,7 @@ from typing import Optional
 from . import log, PACKAGEDIR
 from .utils import power_find, in_cutout
 from scipy.interpolate import CubicSpline
+from astropy.stats import sigma_clip
 
 cache = diskcache.Cache(directory="~/.tess-asteroid-ml-cache")
 
@@ -30,7 +31,7 @@ class AsteroidTESScut:
         target: str = "",
         sector: int = 1,
         cutout_size: int = 50,
-        quality_bitmask=None,
+        bitmask="default",
         use_tike: bool = False,
     ):
         """
@@ -83,37 +84,40 @@ class AsteroidTESScut:
             print("Querying TESScut")
             if cutout_size >= 100:
                 raise ValueError("Cutut size must be < 100 pix")
-            tpf = lk.search_tesscut(target, sector=sector).download(
+            self.tpf = lk.search_tesscut(target, sector=sector).download(
                 cutout_size=(cutout_size, cutout_size),
                 quality_bitmask=quality_bitmask,
             )
-        self.target_str = tpf.targetid
-        self.sector = tpf.sector
-        self.cutout_size = tpf.shape[1]
-        self.camera = tpf.camera
-        self.ccd = tpf.ccd
-        self.time = tpf.time.jd
+        self.quality_mask = lk.utils.TessQualityFlags.create_quality_mask(
+            self.tpf.quality, bitmask=bitmask
+        )
+        self.tpf = self.tpf[self.quality_mask]
+        self.target_str = self.tpf.targetid
+        self.sector = self.tpf.sector
+        self.cutout_size = self.tpf.shape[1]
+        self.camera = self.tpf.camera
+        self.ccd = self.tpf.ccd
+        self.time = self.tpf.time.jd
         self.ntimes = self.time.shape[0]
-        self.flux = tpf.flux.value
-        self.flux = self.flux.reshape(self.ntimes, self.cutout_size * self.cutout_size)
+        self.flux = self.tpf.flux.value.reshape(
+            self.ntimes, self.cutout_size * self.cutout_size
+        )
         self.npixels = self.flux.shape[1]
-        self.quality_mask = tpf.quality_mask
-        self.cadenceno = tpf.cadenceno
+        self.cadenceno = self.tpf.cadenceno
         self.row, self.column = np.mgrid[
-            tpf.row : tpf.row + tpf.shape[1],
-            tpf.column : tpf.column + tpf.shape[2],
+            self.tpf.row : self.tpf.row + self.tpf.shape[1],
+            self.tpf.column : self.tpf.column + self.tpf.shape[2],
         ]
         self.column = self.column.ravel()
         self.row = self.row.ravel()
-        self.ra, self.dec = tpf.get_coordinates(cadence=0)
+        self.ra, self.dec = self.tpf.get_coordinates(cadence=0)
         self.ra = self.ra.ravel()
         self.dec = self.dec.ravel()
-        self.tpf = tpf
         self.asteroid_mask = np.zeros_like(self.flux, dtype=np.int64)
 
     @property
     def shape(self):
-        return f"N times, N pixels: {self.ntimes}, {self.npixels}"
+        return f"N times, N pixels: ({self.ntimes}, {self.npixels})"
 
     @property
     def flux_2d(self):
@@ -150,7 +154,7 @@ class AsteroidTESScut:
         raise NotImplementedError
 
     # @cache.memoize(expire=2.592e06)
-    def get_CBVs(self, align: bool = True, interpolate: bool = True):
+    def get_CBVs(self, align: bool = False, interpolate: bool = True):
         """
         Get CBVs for the cutout. TESS CBVs have 8 components.
 
@@ -173,6 +177,7 @@ class AsteroidTESScut:
             cbv_type="MultiScale",
             band=2,
         )
+        # self._cbvs = self.cbvs.copy()
         if align or interpolate:
             target_mask = self.tpf.create_threshold_mask(
                 threshold=15, reference_pixel='center'
@@ -182,7 +187,6 @@ class AsteroidTESScut:
                 self.cbvs = self.cbvs.align(ffi_lc)
             if interpolate:
                 self.cbvs = self.cbvs.interpolate(ffi_lc, extrapolate=False)
-        self._cbvs = self.cbvs.copy()
         cbvs = self.cbvs[
             [x for x in self.cbvs.columns if x.startswith("VECTOR")]
         ].as_array()
@@ -195,6 +199,7 @@ class AsteroidTESScut:
         name: str = "asteroid_001",
         mask_type: str = "circular",
         mask_radius: int = 2,
+        mask_num_type: str = "byte",
     ):
         """
         Creates am integer pixel mask with ones where an asteroids are found according
@@ -239,7 +244,13 @@ class AsteroidTESScut:
             _rowf = CubicSpline(asteroid_track.time.values, asteroid_track.row)
             # mask with intersection of times between track as tess cut
             ti = np.where(self.time >= asteroid_track.time.values[0])[0][0]
-            tf = np.where(self.time >= asteroid_track.time.values[-1])[0][0]
+            # if ti > 0:
+            #     ti -= 1
+            tf = np.where(self.time >= asteroid_track.time.values[-1])[0]
+            if len(tf) > 0:
+                tf = tf[0]
+            else:
+                tf = len(self.time)
             tmask = np.zeros_like(self.time, dtype=bool)
             tmask[ti:tf] = True
             # interpolate
@@ -256,9 +267,15 @@ class AsteroidTESScut:
 
         # check if Attributes exist if not create new
         if hasattr(self, "asteroid_names"):
-            asteroid_number = 2 ** (len(self.asteroid_names))
+            if mask_num_type == "byte":
+                asteroid_number = 2 ** (len(self.asteroid_names))
+            else:
+                asteroid_number = (len(self.asteroid_names)) + 1
         else:
-            asteroid_number = 2 ** 0
+            if mask_num_type == "byte":
+                asteroid_number = 2 ** 0
+            else:
+                asteroid_number = 1
             # self.asteroid_mask = np.zeros_like(self.flux, dtype=int)
             self.asteroid_names = {}
         self.asteroid_names.update({asteroid_number: name})
@@ -272,59 +289,63 @@ class AsteroidTESScut:
                         np.hypot(self.column - col_int[i], self.row - row_int[i])
                         < mask_radius
                     )[0]
-                    self.asteroid_mask[i, has_asteroid] += asteroid_number
+                    if mask_num_type == "byte":
+                        self.asteroid_mask[i, has_asteroid] += asteroid_number
+                    else:
+                        self.asteroid_mask[i, has_asteroid] = asteroid_number
 
         # dictionary with time idx for each asteroid
         self.asteroid_time_idx = {}
-        multiple_asteroid = [
-            x for x in np.unique(self.asteroid_mask) if len(power_find(x)) > 1
-        ]
-        for n in self.asteroid_names.keys():
-            aux = np.where((self.asteroid_mask == n).any(axis=1))[0]
-            if len(multiple_asteroid) > 0:
-                id_with_ast = [x for x in multiple_asteroid if n in power_find(x)]
-                if len(id_with_ast) > 0:
-                    aux_2 = np.hstack(
-                        [
-                            np.where((self.asteroid_mask == x).any(axis=1))[0]
-                            for x in id_with_ast
-                        ]
-                    )
-                    aux = np.concatenate([aux, aux_2])
-            self.asteroid_time_idx[n] = np.sort(aux)
+        if mask_num_type == "byte":
+            multiple_asteroid = [
+                x for x in np.unique(self.asteroid_mask) if len(power_find(x)) > 1
+            ]
+            for n in self.asteroid_names.keys():
+                aux = np.where((self.asteroid_mask == n).any(axis=1))[0]
+                if len(multiple_asteroid) > 0:
+                    id_with_ast = [x for x in multiple_asteroid if n in power_find(x)]
+                    if len(id_with_ast) > 0:
+                        aux_2 = np.hstack(
+                            [
+                                np.where((self.asteroid_mask == x).any(axis=1))[0]
+                                for x in id_with_ast
+                            ]
+                        )
+                        aux = np.concatenate([aux, aux_2])
+                self.asteroid_time_idx[n] = np.sort(aux)
+        else:
+            for n in self.asteroid_names.keys():
+                self.asteroid_time_idx[n] = np.sort(
+                    np.where((self.asteroid_mask == n).any(axis=1))[0]
+                )
 
         return
 
-    @cache.memoize(expire=2.592e06)
-    def get_quaternions(self, align: bool = True):
+    def get_quaternions_and_angles(self):
         """
-        Get quaterionions vectors corresponding to the sector/camera/ccd
+        Get quaterionions and angle vectors corresponding to the sector/camera.
+        Uses the cadence number and quality mask to match times.
         """
-        # url = "https://archive.stsci.edu/missions/tess/engineering/"
-        # path = f"{PACKAGEDIR}/data/eng"
-        dir_list = os.listdir(path)
-        # if (
-        #     len(dir_list) == 0
-        #     or not ([f"sector{selfsector:02}-quat.fits" in x for x in dir_list]).any()
-        # ):
-        #     print("Downloading engineering files from MAST")
-        #     response = requests.get(url)
-        #     for c in response.iter_lines():
-        #         line = c.decode("ascii")
-        #         if f"sector{self.sector:02}-quat.fits" in line:
-        #             fname = line.split("\"")[5]
-        #     wget.download(f"{url}/{fname}", out=f"{path}")
-        # else:
-        #     fname = dir_list[
-        #         [f"sector{selfsector:02}-quat.fits" in x for x in dir_list]
-        #     ]
-        # quat_table = fitsio.read(f"{path}/{fname}", ext=self.camera)
-        #
-        # self.quat_time = quat_table["TIME"]
-        # self.quat_time = quat_table["TIME"]
+        ff = (
+            f"{os.path.dirname(PACKAGEDIR)}/data/engineering/TESSVectors_S1-26_FFI"
+            f"/TessVectors_S{self.sector:03}_C{self.camera}_FFI.csv"
+        )
+        vectors = pd.read_csv(ff, skiprows=44)
+
+        if vectors.shape[0] != self.quality_mask.shape[0]:
+            raise ValueError("Number of cadences do not match.")
+        self.quaternions = vectors.loc[
+            self.quality_mask, ["Quat1_Med", "Quat2_Med", "Quat3_Med", "Quat4_Med"]
+        ].values
+        self.earth_angle = vectors.loc[
+            self.quality_mask, ["Earth_Camera_Angle", "Earth_Camera_Azimuth"]
+        ].values
+        self.moon_angle = vectors.loc[
+            self.quality_mask, ["Moon_Camera_Angle", "Moon_Camera_Azimuth"]
+        ].values
         return
 
-    def save_data(self, output=None):
+    def save_data(self, output: str = None):
         """
         Saves data into a *.npz file.
 
@@ -362,4 +383,98 @@ class AsteroidTESScut:
             medatada=medatada,
         )
 
+        return
+
+    def find_orbit_breaks(self):
+        """
+        Cuts sector data into two orbits
+        """
+        # finds the indx where orbit starts and ends
+        dts = np.diff(self.time)
+        self.breaks = np.where(dts >= 0.2)[0] + 1
+        return
+
+    def fit_background(self, polyorder: int = 1, positive_flux: bool = False):
+        """Fit a simple 2d polynomial background to a TPF
+
+        Parameters
+        ----------
+        tpf: lightkurve.TessTargetPixelFile
+            Target pixel file object
+        polyorder: int
+            Polynomial order for the model fit.
+
+        Returns
+        -------
+        model : np.ndarray
+            Model for background with same shape as tpf.shape
+        """
+
+        if not isinstance(self.tpf, lk.TessTargetPixelFile):
+            raise ValueError("Input a TESS Target Pixel File")
+
+        if (np.product(self.tpf.shape[1:]) < 100) | np.any(
+            np.asarray(self.tpf.shape[1:]) < 6
+        ):
+            raise ValueError("TPF too small. Use a bigger cut out.")
+
+        # Grid for calculating polynomial
+        R, C = np.mgrid[: self.tpf.shape[1], : self.tpf.shape[2]].astype(float)
+        R -= self.tpf.shape[1] / 2
+        C -= self.tpf.shape[2] / 2
+
+        def func(tpf):
+            # Design matrix
+            A = np.vstack(
+                [
+                    R.ravel() ** idx * C.ravel() ** jdx
+                    for idx in range(polyorder + 1)
+                    for jdx in range(polyorder + 1)
+                ]
+            ).T
+
+            # Median star image
+            m = np.median(tpf.flux.value, axis=0)
+            # Remove background from median star image
+            mask = ~sigma_clip(m, sigma=3).mask.ravel()
+            # plt.imshow(mask.reshape(m.shape))
+            bkg0 = A.dot(
+                np.linalg.solve(A[mask].T.dot(A[mask]), A[mask].T.dot(m.ravel()[mask]))
+            ).reshape(m.shape)
+
+            m -= bkg0
+
+            # Include in design matrix
+            A = np.hstack([A, m.ravel()[:, None]])
+
+            # Fit model to data, including a model for the stars
+            f = np.vstack(tpf.flux.value.transpose([1, 2, 0]))
+            ws = np.linalg.solve(A.T.dot(A), A.T.dot(f))
+
+            # Build a model that is just the polynomial
+            model = (
+                (A[:, :-1].dot(ws[:-1]))
+                .reshape((tpf.shape[1], tpf.shape[2], tpf.shape[0]))
+                .transpose([2, 0, 1])
+            )
+            # model += bkg0
+            return model
+
+        # Break point for TESS orbit
+        b = (
+            np.where(np.diff(self.tpf.cadenceno) == np.diff(self.tpf.cadenceno).max())[
+                0
+            ][0]
+            + 1
+        )
+
+        # Calculate the model for each orbit, then join them
+        self.bkg_model = np.vstack(
+            [func(self.tpf) for self.tpf in [self.tpf[:b], self.tpf[b:]]]
+        )
+        self.flux -= self.bkg_model.reshape(
+            self.ntimes, self.cutout_size * self.cutout_size
+        )
+        if positive_flux:
+            self.flux += np.abs(np.floor(np.min(self.flux)))
         return
