@@ -89,7 +89,7 @@ class AsteroidTESScut:
                 quality_bitmask=quality_bitmask,
             )
         self.quality_mask = lk.utils.TessQualityFlags.create_quality_mask(
-            self.tpf.quality, bitmask=bitmask
+            self.tpf.quality, bitmask=quality_bitmask
         )
         self.tpf = self.tpf[self.quality_mask]
         self.target_str = self.tpf.targetid

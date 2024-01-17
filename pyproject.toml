@@ -5,7 +5,7 @@ description = "Tools to create a ML-ready dataset out of TESS FFIs to study aste
 authors = ["Jorge Martínez-Palomera <jorgemarpa@ug.uchile.cl>"]
 
 [tool.poetry.dependencies]
-python = "^3.8"
+python = "^3.9"
 scipy = "^1.9.0"
 matplotlib = "^3.6.3"
 lightkurve = "^2.3.0"
@@ -25,7 +25,6 @@ jupyterlab = "^2.2.2"
 flake8 = "^3.8.1"
 black = "^20.8b1"
 ipympl = "^0.9.2"
-ipywidgets = "^8.1.0"
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]

@@ -131,13 +131,11 @@ def get_ffi_cutouts(
 
     nrows = np.unique([int(x[-4:]) for x in coords.keys()])
     for k, row in enumerate(nrows):
-        print(f"k {k} row {row}")
         if sampling == "sparse" and k + 1 not in [3, 5, 8, 11, 15, 19, 25]:
             # will only create/save data for a few rows in the FFI tile
             tpf_names_list.append([])
             continue
         row_dict = {k: v for k, v in coords.items() if f"r{row:04}" in k}
-        print(len(row_dict))
         if download:
             print(
                 "WARNING: this will query Astrocut/MAST to create and download "
@@ -274,6 +272,9 @@ def make_asteroid_cut_data(
         cam_ccd=f"{camera}-{ccd}",
         cutout_size=cutout_size,
     )
+    if np.max([len(x) for x in tpf_names_list]) == 0:
+        print("WARNING: No cutout TPFs available in disk. Please run again with "
+              "`--download` flag to get the data")
 
     # iterate over cutouts row in the grid
     for nn, tpf_names in enumerate(tpf_names_list):
@@ -458,39 +459,47 @@ if __name__ == "__main__":
         help="Limiting magnitude in V band.",
     )
     parser.add_argument(
+        "--sampling",
+        dest="sampling",
+        type=str,
+        default="sparse",
+        help=("Select a `dense` grid that covers corner to corner of the FFI or a "
+             "`sparse` that uses only 7 fixed rows from the grid."),
+    )
+    parser.add_argument(
         "--fit-bkg",
         dest="fit_bkg",
         action="store_true",
         default=False,
-        help="Fit and substract background.",
+        help="Fit and substract background (flag).",
     )
     parser.add_argument(
         "--plot",
         dest="plot",
         action="store_true",
         default=False,
-        help="Plot FFI.",
+        help="Plot FFI + asteroid tracks  (flag).",
     )
     parser.add_argument(
         "--verbose",
         dest="verbose",
         action="store_true",
         default=False,
-        help="Verbose.",
+        help="Verbose (flag).",
     )
     parser.add_argument(
         "--download",
         dest="download",
         action="store_true",
         default=False,
-        help="Donwload cutouts from from AWS wh Astrocut.",
+        help="Donwload cutouts from from AWS with Astrocut (flag).",
     )
     args = parser.parse_args()
     make_asteroid_cut_data(
         sector=args.sector,
         camera=args.camera,
         ccd=args.ccd,
-        sampling="sparse",
+        sampling=args.sampling,
         fit_bkg=args.fit_bkg,
         limiting_mag=args.lim_mag,
         cutout_size=args.cutout_size,
