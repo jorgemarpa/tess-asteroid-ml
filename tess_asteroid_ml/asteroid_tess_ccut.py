@@ -31,7 +31,7 @@ class AsteroidTESScut:
         target: str = "",
         sector: int = 1,
         cutout_size: int = 50,
-        bitmask="default",
+        quality_bitmask="default",
         use_tike: bool = False,
     ):
         """
