@@ -2,6 +2,8 @@ import os, sys
 import re
 import argparse
 import pickle
+import tarfile
+import tempfile
 from glob import glob
 
 import numpy as np
@@ -93,29 +95,33 @@ def read_asteroid_db(
 ):
     """"""
 
-    track_file_root = f"{os.path.dirname(PACKAGEDIR)}/data/jpl/tracks/sector{sector:04}"
-    if not os.path.isdir(track_file_root):
+    tarf = f"{os.path.dirname(PACKAGEDIR)}/data/jpl/tracks/sector{sector:04}.tar"
+    if not os.path.isfile(tarf):
         raise ValueError(f"No asteroid db for sector {sector}")
 
     sb_ephems = {}
-    for k, row in tqdm(
-        df.iterrows(), total=len(df), desc="Asteroid list", leave=False, disable=quiet
-    ):
-        # read file with asteroid track from disk if exists
-        track_file = (
-            f"{track_file_root}/"
-            f"tess-ffi_s{sector:04}-0-0_{row['id'].replace(' ', '-')}_hires.feather"
-        )
-        if os.path.isfile(track_file):
-            ephems_aux = pd.read_feather(track_file)
-            if camera != 0:
-                ephems_aux = ephems_aux.query(f"camera == {camera}")
-            if ccd != 0:
-                ephems_aux = ephems_aux.query(f"ccd == {ccd}")
-            if low_res:
-                step = len(ephems_aux) // 27 - 1 if len(ephems_aux) > 100 else 4
-                ephems_aux = ephems_aux[::step]
-            sb_ephems[k] = ephems_aux
+    with tempfile.TemporaryDirectory(prefix="temp_fits") as tmpdir:
+        tardb = tarfile.open(tarf, mode="r")
+        tardb_names = tardb.getnames()
+        for k, row in tqdm(
+            df.iterrows(), total=len(df), desc="Asteroid list", leave=False, disable=quiet
+        ):
+            # read file with asteroid track from disk if exists
+            track_file = (
+                f"sector{sector:04}/"
+                f"tess-ffi_s{sector:04}-0-0_{row['id'].replace(' ', '-')}_hires.feather"
+            )
+            if track_file in tardb_names:
+                tardb.extract(track_file, tmpdir)
+                ephems_aux = pd.read_feather(f"{tmpdir}/{track_file}")
+                if camera != 0:
+                    ephems_aux = ephems_aux.query(f"camera == {camera}")
+                if ccd != 0:
+                    ephems_aux = ephems_aux.query(f"ccd == {ccd}")
+                if low_res:
+                    step = len(ephems_aux) // 27 - 1 if len(ephems_aux) > 100 else 4
+                    ephems_aux = ephems_aux[::step]
+                sb_ephems[k] = ephems_aux
     return sb_ephems
 
 
