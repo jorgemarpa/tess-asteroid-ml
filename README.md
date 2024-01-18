@@ -1,4 +1,4 @@
-# TESScut Asteroids for ML
+# TESS Asteroid cutouts for ML
 
 *A library to create ML-ready data from TESScut with asteroids*
 
@@ -21,12 +21,24 @@ pip install .
 To create the ML ready training data use the *make_TESScut_asteroids.py* script with the desired arguments (see below). This will do the following:
 
 1. First access the asked TESS Sector/Camera/CCD image from MAST/AWS. 
-2. Given a grid pattern (sparse or dense) it uses AstroCut to make cutouts from the FFI and save them to disk. Be carefull to run the script with the argument `--download` onbly the first time for a Sector/Camera/CCD because it will query Astrocut to make and download the files. Fowllowing runs must be withouth the flag to use local data.
+2. Given a grid pattern (sparse or dense) it uses AstroCut to make cutouts from the FFI and save them to disk. Be carefull to run the script with the argument `--download` only the first time for a Sector/Camera/CCD because it will query Astrocut to make and download the files. Fowllowing runs must be withouth the flag to use local data.
 3. Uses the asteroid catalog to get the first guess of available asteroids in the FFI.
 4. Iterates over the available cutouts and available asteroids to make the mask arrays and access other vectors (CBV, quaternions, time, etc). 
 5. It saves the training data as *npz* files.
 
- 
+When runing the script the first time for a Sector/Camera/CCD use:
+
+```
+python make_TESScut_asteroids.py --sector 4 --camera 3 --ccd 2 --sampling sparse --cutout-size 64 --lim-mag 22 --verbose --plot --download
+```
+
+for subsecutive runs and skip Astrocut requests use:
+
+```
+python make_TESScut_asteroids.py --sector 4 --camera 3 --ccd 2 --sampling sparse --cutout-size 64 --lim-mag 22 --verbose --plot
+```
+
+The script has several arguments and flags. Below is the full list:
 
 ```
 usage: make_TESScut_asteroids.py [-h] [--sector SECTOR] [--camera CAMERA] [--ccd CCD] [--cutout-size CUTOUT_SIZE] [--lim-mag LIM_MAG] [--sampling SAMPLING] [--fit-bkg] [--plot]
@@ -35,16 +47,15 @@ usage: make_TESScut_asteroids.py [-h] [--sector SECTOR] [--camera CAMERA] [--ccd
 Creates a dataset from TESS FFIs. Makes 64x64 pixel cuts, uses JPL to create a asteroid mask.
 
 optional arguments:
-  -h, --help            show this help message and exit
-  --sector SECTOR       TESS sector number.
-  --camera CAMERA       TESS camera number.
-  --ccd CCD             TESS CCD number
-  --cutout-size CUTOUT_SIZE
-                        Cutout size in pixels
-  --lim-mag LIM_MAG     Limiting magnitude in V band.
-  --sampling SAMPLING   Select a `dense` grid that covers corner to corner of the FFI or a `sparse` that uses only 7 rows from the grid.
-  --fit-bkg             Fit and substract background (flag).
-  --plot                Plot FFI (flag).
-  --verbose             Verbose (flag).
-  --download            Donwload cutouts from from AWS wh Astrocut (flag).
+  -h, --help      show this help message and exit
+  --sector        TESS sector number.
+  --camera        TESS camera number.
+  --ccd           TESS CCD number
+  --cutout-size   Cutout size in pixels
+  --lim-mag       Limiting magnitude in V band.
+  --sampling      Select a `dense` grid that covers corner to   corner of the FFI or a `sparse` that uses only 7 rows from the grid.
+  --fit-bkg       Fit and substract background (flag).
+  --plot          Plot FFI (flag).
+  --verbose       Verbose (flag).
+  --download      Donwload cutouts from from AWS wh Astrocut (flag).
 ```
