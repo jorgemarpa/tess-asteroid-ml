@@ -89,6 +89,8 @@ def query_jpl_sbi(
         jpl_sb = sbid3.results.to_pandas()
     if len(jpl_sb) == 0:
         raise ValueError("Empty result from JPL")
+    
+    jpl_sb = jpl_sb.drop_duplicates(subset=["Object name"]).reset_index(drop=True)
 
     # parse columns
     jpl_sb["Astrometric Dec (dd mm\'ss\")"] = [
@@ -126,10 +128,11 @@ def get_asteroid_table(
     ccd: int = 1,
     maglim: float = 30,
     save: bool = True,
+    force=False,
 ):
     scc_str = f"s{sector:04}-{camera}-{ccd}"
     jpl_sbi_file = f"{os.path.dirname(PACKAGEDIR)}/data/jpl/jpl_small_bodies_tess_{scc_str}_catalog.csv"
-    if os.path.isfile(jpl_sbi_file):
+    if os.path.isfile(jpl_sbi_file) and not force:
         print(f"Loading from CSV file: {jpl_sbi_file}")
         jpl_sb = pd.read_csv(jpl_sbi_file, index_col=0)
     else:
