@@ -91,6 +91,9 @@ class AsteroidTESScut:
         self.quality_mask = lk.utils.TessQualityFlags.create_quality_mask(
             self.tpf.quality, bitmask=quality_bitmask
         )
+        # remove cadences with flux == 0s in all pixels
+        self.quality_mask &= ~((self.tpf.flux == 0.).sum(axis=-1).sum(axis=-1) ==
+                               np.multiply(*self.tpf.flux.shape[1:]))
         self.tpf = self.tpf[self.quality_mask]
         self.target_str = self.tpf.targetid
         self.sector = self.tpf.sector
