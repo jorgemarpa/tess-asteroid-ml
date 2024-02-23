@@ -295,7 +295,7 @@ def make_asteroid_cut_data(
                 f"and {len(tpf_names)} cuts..."
             )
         # iterate cutouts in a single row
-        F, X, Y, L, NAMES = [], [], [], [], []
+        F, X, Y, L, NAMES, TIM = [], [], [], [], [], []
         sb_ephems_highres = {}
         for q, ff in tqdm(
             enumerate(tpf_names),
@@ -345,6 +345,7 @@ def make_asteroid_cut_data(
             X.append(fficut_aster.column_2d[0, 0])
             Y.append(fficut_aster.row_2d[0, 0])
             L.append(fficut_aster.asteroid_mask_2d)
+            TIM.append(fficut_aster.time)
             if hasattr(fficut_aster, "asteroid_names"):
                 NAMES.append(
                     pd.DataFrame.from_dict(fficut_aster.asteroid_names, orient="index")
@@ -355,10 +356,17 @@ def make_asteroid_cut_data(
             if fficut_aster.asteroid_mask_2d is None:
                 break
 
+        keep_time = TIM[np.argmin([len(x) for x in TIM])]
+        keep_mask = [np.isin(T, keep_time) for T in TIM]
         # break data into orbits to ensure continuous obs
         fficut_aster.find_orbit_breaks()
-        F, X, Y, L = np.array(F), np.array(X), np.array(Y), np.array(L)
+        F = np.array([F[k][keep_mask[k]] for k in range(len(F))])
+        L = np.array([L[k][keep_mask[k]] for k in range(len(L))])
+        X, Y = np.array(X), np.array(Y)
         quat_nonnan_mask = np.isfinite(fficut_aster.quaternions[:, 0])
+        if len(quat_nonnan_mask) != len(keep_time):
+            keep_mask_ = keep_mask[np.argmin([len(x) for x in keep_mask])]
+            quat_nonnan_mask = np.where(keep_mask_)[0]
         F = F[:, quat_nonnan_mask]
         L = L[:, quat_nonnan_mask]
         TIME = fficut_aster.time[quat_nonnan_mask]
