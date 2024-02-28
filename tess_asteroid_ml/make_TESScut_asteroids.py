@@ -5,6 +5,7 @@ import pickle
 import tarfile
 import tempfile
 from glob import glob
+from functools import reduce
 
 import numpy as np
 import pandas as pd

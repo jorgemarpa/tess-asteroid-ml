@@ -472,7 +472,7 @@ class AsteroidTESScut:
 
         # Calculate the model for each orbit, then join them
         self.bkg_model = np.vstack(
-            [func(self.tpf) for self.tpf in [self.tpf[:b], self.tpf[b:]]]
+            [func(aux) for aux in [self.tpf[:b], self.tpf[b:]]]
         )
         self.flux -= self.bkg_model.reshape(
             self.ntimes, self.cutout_size * self.cutout_size
