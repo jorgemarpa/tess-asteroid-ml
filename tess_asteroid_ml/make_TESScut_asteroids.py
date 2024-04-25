@@ -105,7 +105,11 @@ def read_asteroid_db(
         tardb = tarfile.open(tarf, mode="r")
         tardb_names = tardb.getnames()
         for k, row in tqdm(
-            df.iterrows(), total=len(df), desc="Asteroid list", leave=False, disable=quiet
+            df.iterrows(),
+            total=len(df),
+            desc="Asteroid list",
+            leave=False,
+            disable=quiet,
         ):
             # read file with asteroid track from disk if exists
             track_file = (
@@ -159,6 +163,11 @@ def get_ffi_cutouts(
                 f"{os.path.dirname(PACKAGEDIR)}/data/tesscuts/sector{sector:04}"
                 f"/TESScut_s{sector:04}-{cam_ccd}_c*_r{row:04}_{cutout_size}x{cutout_size}pix.fits"
             )
+            if sampling == "dense" and len(tpf_names) != len(row_dict):
+                print(
+                    f"WARNING: did not find all cutouts in folder for row {row}. "
+                    f"Found {len(tpf_names)} but should be {len(row_dict)}"
+                )
 
         tpf_names_list.append(tpf_names)
     return tpf_names_list
@@ -175,6 +184,7 @@ def make_asteroid_cut_data(
     verbose: bool = False,
     plot: bool = False,
     download=False,
+    download_only=False,
 ):
     provider = "mast"
 
@@ -201,8 +211,8 @@ def make_asteroid_cut_data(
 
     # get asteroid catalog
     jpl_df = get_asteroid_table(
-        SkyCoord(ra_2d.min() * u.deg, dec_2d.min() * u.deg, frame='icrs'),
-        SkyCoord(ra_2d.max() * u.deg, dec_2d.max() * u.deg, frame='icrs'),
+        SkyCoord(ra_2d.min() * u.deg, dec_2d.min() * u.deg, frame="icrs"),
+        SkyCoord(ra_2d.max() * u.deg, dec_2d.max() * u.deg, frame="icrs"),
         sector=sector,
         camera=camera,
         ccd=0,
@@ -279,9 +289,19 @@ def make_asteroid_cut_data(
         cam_ccd=f"{camera}-{ccd}",
         cutout_size=cutout_size,
     )
+    tot_cutouts = len([x for xs in tpf_names_list for x in xs])
+    if verbose:
+        print(f"Total cutouts in disk {tot_cutouts}")
+    if sampling == "dense" and tot_cutouts != len(cut_dict):
+        raise FileNotFoundError(f"Found only {tot_cutouts} instead of {len(cut_dict)}")
+    if download_only:
+        sys.exit()
+
     if np.max([len(x) for x in tpf_names_list]) == 0:
-        print("WARNING: No cutout TPFs available in disk. Please run again with "
-              "`--download` flag to get the data")
+        print(
+            "WARNING: No cutout TPFs available in disk. Please run again with "
+            "`--download` flag to get the data"
+        )
 
     # iterate over cutouts row in the grid
     for nn, tpf_names in enumerate(tpf_names_list):
@@ -357,7 +377,7 @@ def make_asteroid_cut_data(
 
         keep_cad = reduce(np.intersect1d, CAD)
         keep_mask = [np.isin(C, keep_cad) for C in CAD]
-        
+
         # make 4d arrays (n_cutout, n_time, n_col, n_row)
         F = np.array([F[k][keep_mask[k]] for k in range(len(F))])
         L = np.array([L[k][keep_mask[k]] for k in range(len(L))])
@@ -366,7 +386,7 @@ def make_asteroid_cut_data(
         # make others arrays, time, CBV, quat and angles
         keep_mask = np.isin(fficut_aster.cadenceno[fficut_aster.quality_mask], keep_cad)
         TIME = fficut_aster.time[keep_mask]
-        
+
         fficut_aster.get_CBVs(align=False, interpolate=True)
         CBV = fficut_aster.cbvs[keep_mask]
         ff = (
@@ -374,9 +394,15 @@ def make_asteroid_cut_data(
             f"/TessVectors_S{sector:03}_C{camera}_FFI.csv"
         )
         vectors = pd.read_csv(ff, skiprows=44)
-        QUAT = vectors.loc[keep_cad, ["Quat1_Med", "Quat2_Med", "Quat3_Med", "Quat4_Med"]].values
-        E_ANG = vectors.loc[keep_cad, ["Earth_Camera_Angle", "Earth_Camera_Azimuth"]].values
-        M_ANG = vectors.loc[keep_cad, ["Moon_Camera_Angle", "Moon_Camera_Azimuth"]].values
+        QUAT = vectors.loc[
+            keep_cad, ["Quat1_Med", "Quat2_Med", "Quat3_Med", "Quat4_Med"]
+        ].values
+        E_ANG = vectors.loc[
+            keep_cad, ["Earth_Camera_Angle", "Earth_Camera_Azimuth"]
+        ].values
+        M_ANG = vectors.loc[
+            keep_cad, ["Moon_Camera_Angle", "Moon_Camera_Azimuth"]
+        ].values
 
         dts = np.diff(TIME)
         breaks = np.where(dts >= 0.2)[0] + 1
@@ -480,8 +506,10 @@ if __name__ == "__main__":
         dest="sampling",
         type=str,
         default="sparse",
-        help=("Select a `dense` grid that covers corner to corner of the FFI or a "
-             "`sparse` that uses only 7 fixed rows from the grid."),
+        help=(
+            "Select a `dense` grid that covers corner to corner of the FFI or a "
+            "`sparse` that uses only 7 fixed rows from the grid."
+        ),
     )
     parser.add_argument(
         "--fit-bkg",
@@ -511,6 +539,13 @@ if __name__ == "__main__":
         default=False,
         help="Donwload cutouts from from AWS with Astrocut (flag).",
     )
+    parser.add_argument(
+        "--download-only",
+        dest="download_only",
+        action="store_true",
+        default=False,
+        help="ONLY Donwload cutouts from from AWS with Astrocut (flag).",
+    )
     args = parser.parse_args()
     make_asteroid_cut_data(
         sector=args.sector,
@@ -523,4 +558,5 @@ if __name__ == "__main__":
         verbose=args.verbose,
         plot=args.plot,
         download=args.download,
+        download_only=args.download_only,
     )
