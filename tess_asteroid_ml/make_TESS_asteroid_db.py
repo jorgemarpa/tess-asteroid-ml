@@ -28,7 +28,7 @@ from tess_asteroid_ml import PACKAGEDIR
 
 
 def query_jpl_sbi(
-    edge1: SkyCoord, edge2: SkyCoord, obstime: float = 2459490, maglim: float = 30
+    edge1: SkyCoord, edge2: SkyCoord, obstime: float = 2459490, maglim: float = 30, elem: bool=False
 ):
     print("Requesting JPL Smal-bodies API")
 
@@ -69,6 +69,7 @@ def query_jpl_sbi(
                     maglim=maglim,
                     precision="high",
                     request=True,
+                    elem=elem,
                 )
             )
             edge11 = SkyCoord(edge22.ra, edge1.dec, frame='icrs')
@@ -85,6 +86,7 @@ def query_jpl_sbi(
             maglim=maglim,
             precision="high",
             request=True,
+            elem=elem,
         )
         jpl_sb = sbid3.results.to_pandas()
     if len(jpl_sb) == 0:
@@ -93,23 +95,29 @@ def query_jpl_sbi(
     jpl_sb = jpl_sb.drop_duplicates(subset=["Object name"]).reset_index(drop=True)
 
     # parse columns
-    jpl_sb["Astrometric Dec (dd mm\'ss\")"] = [
-        x.replace(" ", ":").replace("\'", ":").replace('"', "")
-        for x in jpl_sb["Astrometric Dec (dd mm\'ss\")"]
-    ]
-    coord = SkyCoord(
-        jpl_sb[["Astrometric RA (hh:mm:ss)", "Astrometric Dec (dd mm\'ss\")"]].values,
-        frame='icrs',
-        unit=(u.hourangle, u.deg),
-    )
-    jpl_sb["ra"] = coord.ra.deg
-    jpl_sb["dec"] = coord.dec.deg
-    jpl_sb["V_mag"] = jpl_sb["Visual magnitude (V)"].replace("n.a.", np.nan)
-    jpl_sb["V_mag"] = [
-        float(x) if not x.endswith("N") else float(x[:-1]) for x in jpl_sb["V_mag"]
-    ]
-    jpl_sb['RA rate ("/h)'] = jpl_sb['RA rate ("/h)'].astype(float)
-    jpl_sb['Dec rate ("/h)'] = jpl_sb['Dec rate ("/h)'].astype(float)
+    if elem:
+        jpl_sb["H_mag"] = jpl_sb["Absolute magntiude (H)"].replace("n.a.", np.nan)
+        jpl_sb["Eccentricity"] = jpl_sb["Eccentricity"].astype(float)
+        jpl_sb["Perihelion (au)"] = jpl_sb["Perihelion (au)"].astype(float)
+        jpl_sb["Inclination (deg)"] = jpl_sb["Inclination (deg)"].astype(float)
+    else:
+        jpl_sb["Astrometric Dec (dd mm\'ss\")"] = [
+            x.replace(" ", ":").replace("\'", ":").replace('"', "")
+            for x in jpl_sb["Astrometric Dec (dd mm\'ss\")"]
+        ]
+        coord = SkyCoord(
+            jpl_sb[["Astrometric RA (hh:mm:ss)", "Astrometric Dec (dd mm\'ss\")"]].values,
+            frame='icrs',
+            unit=(u.hourangle, u.deg),
+        )
+        jpl_sb["ra"] = coord.ra.deg
+        jpl_sb["dec"] = coord.dec.deg
+        jpl_sb["V_mag"] = jpl_sb["Visual magnitude (V)"].replace("n.a.", np.nan)
+        jpl_sb["V_mag"] = [
+            float(x) if not x.endswith("N") else float(x[:-1]) for x in jpl_sb["V_mag"]
+        ]
+        jpl_sb['RA rate ("/h)'] = jpl_sb['RA rate ("/h)'].astype(float)
+        jpl_sb['Dec rate ("/h)'] = jpl_sb['Dec rate ("/h)'].astype(float)
     jpl_sb["name"] = jpl_sb["Object name"].apply(lambda x: x.split("(")[0].strip())
     jpl_sb["id"] = jpl_sb["Object name"].apply(
         lambda x: x.split("(")[1][:-1].strip()
@@ -128,10 +136,12 @@ def get_asteroid_table(
     ccd: int = 1,
     maglim: float = 30,
     save: bool = True,
-    force=False,
+    force:bool = False,
+    elem:bool = False,
 ):
     scc_str = f"s{sector:04}-{camera}-{ccd}"
-    jpl_sbi_file = f"{os.path.dirname(PACKAGEDIR)}/data/jpl/jpl_small_bodies_tess_{scc_str}_catalog.csv"
+    elem_str = "_elem" if elem else ""
+    jpl_sbi_file = f"{os.path.dirname(PACKAGEDIR)}/data/jpl/jpl_small_bodies_tess_{scc_str}_catalog{elem_str}.csv"
     if os.path.isfile(jpl_sbi_file) and not force:
         print(f"Loading from CSV file: {jpl_sbi_file}")
         jpl_sb = pd.read_csv(jpl_sbi_file, index_col=0)
@@ -141,6 +151,7 @@ def get_asteroid_table(
             edge2,
             obstime=date_obs,
             maglim=maglim,
+            elem=elem
         )
         if save:
             print(f"Saving to {jpl_sbi_file}")
