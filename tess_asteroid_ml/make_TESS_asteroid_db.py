@@ -28,7 +28,11 @@ from tess_asteroid_ml import PACKAGEDIR
 
 
 def query_jpl_sbi(
-    edge1: SkyCoord, edge2: SkyCoord, obstime: float = 2459490, maglim: float = 30, elem: bool=False
+    edge1: SkyCoord,
+    edge2: SkyCoord,
+    obstime: float = 2459490,
+    maglim: float = 30,
+    elem: bool = False,
 ):
     print("Requesting JPL Smal-bodies API")
 
@@ -40,18 +44,18 @@ def query_jpl_sbi(
     # 1AU in km
     au = (1 * u.au).to(u.km).value
     # TESS state vector
-    tess = Horizons(id='-95', location='500', epochs=obstime, id_type=None).vectors(
-        refplane='earth'
+    tess = Horizons(id="-95", location="500", epochs=obstime, id_type=None).vectors(
+        refplane="earth"
     )
     tess_km = (
-        tess[['x', 'y', 'z', 'vx', 'vy', 'vz']].to_pandas().to_numpy() * au
+        tess[["x", "y", "z", "vx", "vy", "vz"]].to_pandas().to_numpy() * au
     )  # convert to km/d
     tess_km[:, 3:] = tess_km[:, 3:] / 86400  # convert to km/s
     tess_km = tess_km[0]  # take the first row
 
     # form the xobs dictionary that is the input for SBIdent location argument
-    xobs = ','.join([np.format_float_scientific(s, precision=5) for s in tess_km])
-    xobs_location = {'xobs': xobs}
+    xobs = ",".join([np.format_float_scientific(s, precision=5) for s in tess_km])
+    xobs_location = {"xobs": xobs}
 
     if edge2.ra - edge1.ra > 90 * u.deg:
         # split into 2 seg if range of ra is too big
@@ -59,7 +63,7 @@ def query_jpl_sbi(
         aux_sbid3 = []
         n = 3
         edge11 = edge1
-        edge22 = SkyCoord(edge11.ra + full_range / n, edge2.dec, frame='icrs')
+        edge22 = SkyCoord(edge11.ra + full_range / n, edge2.dec, frame="icrs")
         for k in range(n):
             aux_sbid3.append(
                 SBIdent(
@@ -72,9 +76,9 @@ def query_jpl_sbi(
                     elem=elem,
                 )
             )
-            edge11 = SkyCoord(edge22.ra, edge1.dec, frame='icrs')
+            edge11 = SkyCoord(edge22.ra, edge1.dec, frame="icrs")
             edge22 = SkyCoord(
-                edge11.ra + (n + 1) * (full_range / n), edge2.dec, frame='icrs'
+                edge11.ra + (n + 1) * (full_range / n), edge2.dec, frame="icrs"
             )
 
         jpl_sb = pd.concat([x.results.to_pandas() for x in aux_sbid3], axis=0)
@@ -91,7 +95,7 @@ def query_jpl_sbi(
         jpl_sb = sbid3.results.to_pandas()
     if len(jpl_sb) == 0:
         raise ValueError("Empty result from JPL")
-    
+
     jpl_sb = jpl_sb.drop_duplicates(subset=["Object name"]).reset_index(drop=True)
 
     # parse columns
@@ -101,13 +105,15 @@ def query_jpl_sbi(
         jpl_sb["Perihelion (au)"] = jpl_sb["Perihelion (au)"].astype(float)
         jpl_sb["Inclination (deg)"] = jpl_sb["Inclination (deg)"].astype(float)
     else:
-        jpl_sb["Astrometric Dec (dd mm\'ss\")"] = [
-            x.replace(" ", ":").replace("\'", ":").replace('"', "")
-            for x in jpl_sb["Astrometric Dec (dd mm\'ss\")"]
+        jpl_sb["Astrometric Dec (dd mm'ss\")"] = [
+            x.replace(" ", ":").replace("'", ":").replace('"', "")
+            for x in jpl_sb["Astrometric Dec (dd mm'ss\")"]
         ]
         coord = SkyCoord(
-            jpl_sb[["Astrometric RA (hh:mm:ss)", "Astrometric Dec (dd mm\'ss\")"]].values,
-            frame='icrs',
+            jpl_sb[
+                ["Astrometric RA (hh:mm:ss)", "Astrometric Dec (dd mm'ss\")"]
+            ].values,
+            frame="icrs",
             unit=(u.hourangle, u.deg),
         )
         jpl_sb["ra"] = coord.ra.deg
@@ -136,8 +142,8 @@ def get_asteroid_table(
     ccd: int = 1,
     maglim: float = 30,
     save: bool = True,
-    force:bool = False,
-    elem:bool = False,
+    force: bool = False,
+    elem: bool = False,
 ):
     scc_str = f"s{sector:04}-{camera}-{ccd}"
     elem_str = "_elem" if elem else ""
@@ -146,13 +152,7 @@ def get_asteroid_table(
         print(f"Loading from CSV file: {jpl_sbi_file}")
         jpl_sb = pd.read_csv(jpl_sbi_file, index_col=0)
     else:
-        jpl_sb = query_jpl_sbi(
-            edge1,
-            edge2,
-            obstime=date_obs,
-            maglim=maglim,
-            elem=elem
-        )
+        jpl_sb = query_jpl_sbi(edge1, edge2, obstime=date_obs, maglim=maglim, elem=elem)
         if save:
             print(f"Saving to {jpl_sbi_file}")
             jpl_sb.to_csv(jpl_sbi_file)
@@ -176,7 +176,7 @@ def get_sector_dates(sector: int = 1):
             sector_date.iloc[1]["Start Time"],
             sector_date.iloc[-1]["End Time"],
         ],
-        format='iso',
+        format="iso",
     )
 
 
@@ -233,7 +233,6 @@ def get_data_from_files(file_list, provider="mast"):
     ffi_flux = []
     ffi_ra_2d, ffi_dec_2d = [], []
     for file in file_list:
-
         if provider == "mast":
             ffi_headers.append(fits.getheader(file))
             ffi_flux.append(fits.getdata(file)[r_min:r_max, c_min:c_max])
@@ -320,13 +319,13 @@ def get_asteroids_in_FFI(
             # query JPL to get asteroid track within sector times every 12h
             try:
                 te = TessEphem(
-                    row['id'],
+                    row["id"],
                     start=predict_times[0],
                     stop=predict_times[-1],
                     step="12H",
                     id_type="smallbody",
                 )
-                name_ok = row['id']
+                name_ok = row["id"]
             except (
                 ConnectTimeout,
                 ReadTimeout,
@@ -346,13 +345,13 @@ def get_asteroids_in_FFI(
             except ValueError:
                 try:
                     te = TessEphem(
-                        row['name'],
+                        row["name"],
                         start=predict_times[0],
                         stop=predict_times[-1],
                         step="12H",
                         id_type="smallbody",
                     )
-                    name_ok = row['name']
+                    name_ok = row["name"]
                 except ValueError:
                     print(f"Query failed for {row['Object name']}")
                     continue
@@ -397,7 +396,6 @@ def create_FFI_asteroid_database(
     maglim: float = 22,
     provider: str = "mast",
 ):
-
     # get FFI file path
     ffi_file = get_FFI_name(sector=sector, camera=camera, ccd=ccd, provider=provider)
     print(ffi_file)
@@ -409,8 +407,8 @@ def create_FFI_asteroid_database(
     ffi_date = Time([ffi_header[0]["DATE-OBS"], ffi_header[0]["DATE-END"]])
 
     # get asteroid table from JPL SBI for Sector/Camera/CCD
-    edge1 = SkyCoord(np.min(ra_2d) * u.deg, np.min(dec_2d) * u.deg, frame='icrs')
-    edge2 = SkyCoord(np.max(ra_2d) * u.deg, np.max(dec_2d) * u.deg, frame='icrs')
+    edge1 = SkyCoord(np.min(ra_2d) * u.deg, np.min(dec_2d) * u.deg, frame="icrs")
+    edge2 = SkyCoord(np.max(ra_2d) * u.deg, np.max(dec_2d) * u.deg, frame="icrs")
     # if sector raps around ra 360/0 edge find the right sector edges
     if np.abs(edge1.ra - edge2.ra) > 180 * u.deg:
         right_patch = np.array(ra_2d) >= 180
@@ -420,10 +418,10 @@ def create_FFI_asteroid_database(
         dec_2d_left = np.array(dec_2d)[~right_patch]
         dec_2d_right = np.array(dec_2d)[right_patch]
         edge1 = SkyCoord(
-            np.min(ra_2d_right) * u.deg, np.min(dec_2d_right) * u.deg, frame='icrs'
+            np.min(ra_2d_right) * u.deg, np.min(dec_2d_right) * u.deg, frame="icrs"
         )
         edge2 = SkyCoord(
-            np.max(ra_2d_left) * u.deg, np.max(dec_2d_left) * u.deg, frame='icrs'
+            np.max(ra_2d_left) * u.deg, np.max(dec_2d_left) * u.deg, frame="icrs"
         )
 
     jpl_df = get_asteroid_table(
@@ -470,13 +468,13 @@ def create_FFI_asteroid_database(
             ax[0].hist(asteroid_df["V_mag"].values, bins=50)
             ax[0].set_xlabel("Visual Magnitude [mag]")
             ax[0].set_ylabel("N")
-            ax[1].hist(jpl_df["RA rate (\"/h)"].values, bins=50, log=True)
-            ax[1].hist(asteroid_df["RA rate (\"/h)"].values, bins=50, log=True)
-            ax[1].set_xlabel("R.A. rate [\"/h]")
+            ax[1].hist(jpl_df['RA rate ("/h)'].values, bins=50, log=True)
+            ax[1].hist(asteroid_df['RA rate ("/h)'].values, bins=50, log=True)
+            ax[1].set_xlabel('R.A. rate ["/h]')
             ax[1].set_ylabel("N")
-            ax[2].hist(jpl_df["Dec rate (\"/h)"].values, bins=50, log=True)
-            ax[2].hist(asteroid_df["Dec rate (\"/h)"].values, bins=50, log=True)
-            ax[2].set_xlabel("Dec. rate [\"/h]")
+            ax[2].hist(jpl_df['Dec rate ("/h)'].values, bins=50, log=True)
+            ax[2].hist(asteroid_df['Dec rate ("/h)'].values, bins=50, log=True)
+            ax[2].set_xlabel('Dec. rate ["/h]')
             ax[2].set_ylabel("N")
             FigureCanvasPdf(fig_dist).print_figure(pages)
             plt.close()
@@ -512,7 +510,7 @@ def create_FFI_asteroid_database(
 
                 plt.xlim(col_2d.min() - 10, col_2d.max() + 10)
                 plt.ylim(row_2d.min() - 10, row_2d.max() + 10)
-                plt.gca().set_aspect('equal')
+                plt.gca().set_aspect("equal")
                 plt.xlabel("Pixel Column")
                 plt.ylabel("Pixel Row")
                 FigureCanvasPdf(fig_ima).print_figure(pages)
