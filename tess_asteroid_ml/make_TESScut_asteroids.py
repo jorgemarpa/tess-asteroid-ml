@@ -16,14 +16,18 @@ from astropy.time import Time
 from tqdm import tqdm
 from astrocut import CutoutFactory
 from astropy.stats import sigma_clip
+from tessrip import Rip
 
 from tess_asteroid_ml import *
 from tess_asteroid_ml.make_TESS_asteroid_db import *
 from tess_asteroid_ml.utils import in_cutout
 
 
-def get_cutouts(
-    target_dict: dict, sector: int = 1, cam_ccd: str = "1-1", cutout_size=50
+def get_cutouts_astrocut(
+    target_dict: dict,
+    sector: int = 1,
+    cam_ccd: str = "1-1",
+    cutout_size: int = 50,
 ):
     """
     Downloads a TESS cut using AstroCut
@@ -53,6 +57,44 @@ def get_cutouts(
                 target_pixel_file=output,
                 threads="auto",
             )
+        tpf_names.append(output)
+
+    return tpf_names
+
+
+def get_cutouts_tessrip(
+    target_dict: dict,
+    sector: int = 1,
+    cam_ccd: str = "1-1",
+    cutout_size: int = 50,
+):
+    """
+    Downloads a TESS cut using AstroCut
+    """
+    tpf_path = f"{os.path.dirname(PACKAGEDIR)}/data/tesscuts/sector{sector:04}"
+    if not os.path.isdir(tpf_path):
+        os.makedirs(tpf_path)
+    tpf_names = []
+    rips = Rip(
+        sector=sector, camera=int(cam_ccd.split("-")[0]), ccd=int(cam_ccd.split("-")[1])
+    )
+    delete_kwds = ["NAXIS1", "NAXIS2", "NAXIS3", "NAXIS4"]
+    for k, v in target_dict.items():
+        output = (
+            f"{tpf_path}/"
+            f"TESScut_s{sector:04}-{cam_ccd}_{k}_{cutout_size}x{cutout_size}pix_rip.fits"
+        )
+        if not os.path.isfile(output):
+            print(f"Creating FFI cut: {output}")
+            col, row = int(k.split("_")[0][1:]), int(k.split("_")[1][1:])
+            tpf = rips.get_tpf(
+                corner=(row - int(cutout_size / 2) + 1, col - int(cutout_size / 2) + 1),
+                shape=(cutout_size, cutout_size),
+            ).copy()
+            for kwd in delete_kwds:
+                if kwd in tpf[0].header:
+                    del tpf[0].header[kwd]
+            tpf.writeto(output, overwrite=True)
         tpf_names.append(output)
 
     return tpf_names
@@ -152,7 +194,7 @@ def get_ffi_cutouts(
                 "WARNING: this will query Astrocut/MAST to create and download "
                 f"{len(row_dict)} cutouts. Only run this onece, then use saved files."
             )
-            tpf_names = get_cutouts(
+            tpf_names = get_cutouts_astrocut(
                 row_dict,
                 sector=sector,
                 cam_ccd=cam_ccd,
