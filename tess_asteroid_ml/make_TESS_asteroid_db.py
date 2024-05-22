@@ -136,7 +136,7 @@ def query_jpl_sbi(
 def get_asteroid_table(
     edge1: SkyCoord = None,
     edge2: SkyCoord = None,
-    date_obs: Time = None,
+    date_obs: list = None,
     sector: int = 1,
     camera: int = 1,
     ccd: int = 1,
@@ -152,7 +152,19 @@ def get_asteroid_table(
         print(f"Loading from CSV file: {jpl_sbi_file}")
         jpl_sb = pd.read_csv(jpl_sbi_file, index_col=0)
     else:
-        jpl_sb = query_jpl_sbi(edge1, edge2, obstime=date_obs, maglim=maglim, elem=elem)
+        if not isinstance(date_obs, (list, np.ndarray)):
+            date_obs = np.array([date_obs])
+        aux_res = []
+        for qtime in date_obs:
+            print(edge1, edge2, qtime, maglim, elem)
+            aux_res.append(
+                query_jpl_sbi(edge1, edge2, obstime=qtime, maglim=maglim, elem=elem)
+            )
+        jpl_sb = (
+            pd.concat(aux_res)
+            .drop_duplicates(subset=["Object name"])
+            .reset_index(drop=True)
+        )
         if save:
             print(f"Saving to {jpl_sbi_file}")
             jpl_sb.to_csv(jpl_sbi_file)
