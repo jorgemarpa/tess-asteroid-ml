@@ -223,9 +223,7 @@ def get_FFI_name(
         date_o = fn[4:17]
         yyyy = date_o[:4]
         ddd = date_o[4:7]
-        print(correct)
         if correct:
-            print(correct)
             date_n = str(int(date_o) - correct)
             fn = fn.replace(date_o, date_n)
         camera = fn.split("-")[2]
