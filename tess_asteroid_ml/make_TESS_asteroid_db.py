@@ -177,7 +177,8 @@ def get_sector_dates(sector: int = 1):
     Get sector observation dates (start, end) as a astropy Time object.
     """
     sector_date = pd.read_csv(
-        f"{os.path.dirname(PACKAGEDIR)}/data/support/TESS_FFI_observation_times.csv"
+        f"{os.path.dirname(PACKAGEDIR)}/data/support/TESS_FFI_observation_times.csv",
+        comment="#",
     ).query(f"Sector == {sector}")
     if len(sector_date) == 0:
         raise ValueError(f"Sector {sector} not in data base.")
@@ -193,7 +194,7 @@ def get_sector_dates(sector: int = 1):
 
 
 def get_FFI_name(
-    sector: int = 1, camera: int = 1, ccd: int = 0, correct=False, provider="mast"
+    sector: int = 1, camera: int = 1, ccd: int = 0, correct: int = 0, provider="mast"
 ):
     if ccd == 0:
         files = [
@@ -222,8 +223,10 @@ def get_FFI_name(
         date_o = fn[4:17]
         yyyy = date_o[:4]
         ddd = date_o[4:7]
+        print(correct)
         if correct:
-            date_n = str(int(date_o) - 1)
+            print(correct)
+            date_n = str(int(date_o) - correct)
             fn = fn.replace(date_o, date_n)
         camera = fn.split("-")[2]
         ccd = fn.split("-")[3]
