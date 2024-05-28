@@ -14,3 +14,6 @@ notebooks/.virtual_documents
 notebooks/snippets
 notebooks/.python-version
 notebooks/data
+notebooks/figures/.DS_Store
+notebooks/.DS_Store
+data/jpl/*.csv
