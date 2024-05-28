@@ -25,6 +25,7 @@ from sbident import SBIdent
 import tess_cloud
 from tess_ephem import TessEphem
 from tess_asteroid_ml import PACKAGEDIR
+from tess_asteroid_ml.utils import load_ffi_image
 
 
 def query_jpl_sbi(
@@ -33,6 +34,7 @@ def query_jpl_sbi(
     obstime: float = 2459490,
     maglim: float = 30,
     elem: bool = False,
+    sb_kind: str = "all",
 ):
     print("Requesting JPL Smal-bodies API")
 
@@ -57,6 +59,13 @@ def query_jpl_sbi(
     xobs = ",".join([np.format_float_scientific(s, precision=5) for s in tess_km])
     xobs_location = {"xobs": xobs}
 
+    if sb_kind == "asteroid":
+        filters = {"sb-kind": "a"}
+    elif sb_kind == "comet":
+        filters = {"sb-kind": "c"}
+    else:
+        filters = None
+
     if edge2.ra - edge1.ra > 90 * u.deg:
         # split into 2 seg if range of ra is too big
         full_range = edge2.ra - edge1.ra
@@ -74,6 +83,7 @@ def query_jpl_sbi(
                     precision="high",
                     request=True,
                     elem=elem,
+                    filters=filters,
                 )
             )
             edge11 = SkyCoord(edge22.ra, edge1.dec, frame="icrs")
@@ -91,6 +101,7 @@ def query_jpl_sbi(
             precision="high",
             request=True,
             elem=elem,
+            filters=filters,
         )
         jpl_sb = sbid3.results.to_pandas()
     if len(jpl_sb) == 0:
@@ -144,10 +155,12 @@ def get_asteroid_table(
     save: bool = True,
     force: bool = False,
     elem: bool = False,
+    sb_kind: str = "all",
 ):
     scc_str = f"s{sector:04}-{camera}-{ccd}"
     elem_str = "_elem" if elem else ""
-    jpl_sbi_file = f"{os.path.dirname(PACKAGEDIR)}/data/jpl/jpl_small_bodies_tess_{scc_str}_catalog{elem_str}.csv"
+    kind_str = "" if sb_kind == "all" else f"_{sb_kind}"
+    jpl_sbi_file = f"{os.path.dirname(PACKAGEDIR)}/data/jpl/jpl_small_bodies_tess_{scc_str}_catalog{elem_str}{kind_str}.csv"
     if os.path.isfile(jpl_sbi_file) and not force:
         print(f"Loading from CSV file: {jpl_sbi_file}")
         jpl_sb = pd.read_csv(jpl_sbi_file, index_col=0)
@@ -401,6 +414,131 @@ def get_asteroids_in_FFI(
     return sb_ephems
 
 
+def plot_tess_camera(sector: int = 1, camera: int = 1, maglim: float = 24):
+    """plot_tess_camera
+    creates a figure with TESS camera and asteroid tracks
+
+    Parameters
+    ----------
+    sector : int, optional
+        _description_, by default 1
+    camera : int, optional
+        _description_, by default 1
+    maglim : float, optional
+        _description_, by default 24
+    """
+    ffi_file = get_FFI_name(sector=sector, camera=camera, ccd=0, correct=False)
+    print(ffi_file)
+
+    COL, ROW, F = {}, {}, {}
+    for k, ccd in enumerate(range(1, 5)):
+        col_2d, row_2d, f2d = load_ffi_image(
+            "TESS",
+            ffi_file[k],
+            1,
+            None,
+            [0, 0],
+            return_coords=True,
+        )
+
+        COL[ccd] = col_2d
+        ROW[ccd] = row_2d
+        F[ccd] = f2d
+
+    scc_str = f"s{sector:04}-{camera}-{0}"
+
+    jpl_sbi_file = (
+        f"{os.path.dirname(PACKAGEDIR)}/data/jpl"
+        f"/jpl_small_bodies_tess_{scc_str}_catalog.csv"
+    )
+    if os.path.isfile(jpl_sbi_file):
+        print("Loading from CSV file...")
+        jpl_sb = pd.read_csv(jpl_sbi_file, index_col=0)
+
+    jpl_sb_bright = jpl_sb.query(f"V_mag <= {maglim}").reset_index()
+    print(f"Asteroid catalog shape (V < {maglim}): ", jpl_sb_bright.shape)
+
+    sb_ephems_lowres = {}
+
+    for k, row in tqdm(jpl_sb_bright.iterrows(), total=len(jpl_sb_bright)):
+        feath_file = (
+            f"{os.path.dirname(PACKAGEDIR)}/data/jpl/tracks/sector{sector:04}/"
+            f"tess-ffi_s{sector:04}-0-0_{row['id'].replace(' ', '-')}_hires.feather"
+        )
+        if os.path.isfile(feath_file):
+            ephems_aux = pd.read_feather(feath_file)
+            step = len(ephems_aux) // 27 - 1 if len(ephems_aux) > 100 else 4
+            sb_ephems_lowres[k] = ephems_aux
+
+    print(f"Asteroid tracks in DB: {len(sb_ephems_lowres)}")
+
+    print("Ploting figure...")
+    fig, ax = plt.subplots(2, 2, figsize=(14, 14))
+    plt.suptitle(
+        f"Asteroid Tracks in Sector {sector} Camera {camera} V < {maglim}", y=0.92
+    )
+
+    for k, ccd in enumerate(range(1, 5)):
+        if camera in [1, 2]:
+            if ccd == 1:
+                ax_ = ax[1, 1]
+                ax_.invert_xaxis()
+            elif ccd == 2:
+                ax_ = ax[1, 0]
+                ax_.invert_xaxis()
+            elif ccd == 3:
+                ax_ = ax[0, 0]
+                ax_.invert_yaxis()
+            elif ccd == 4:
+                ax_ = ax[0, 1]
+                ax_.invert_yaxis()
+
+        if camera in [3, 4]:
+            if ccd == 1:
+                ax_ = ax[0, 0]
+                ax_.invert_yaxis()
+            elif ccd == 2:
+                ax_ = ax[0, 1]
+                ax_.invert_yaxis()
+            elif ccd == 3:
+                ax_ = ax[1, 1]
+                ax_.invert_xaxis()
+            elif ccd == 4:
+                ax_ = ax[1, 0]
+                ax_.invert_xaxis()
+
+        vlo, lo, mid, hi, vhi = np.nanpercentile(F[ccd], [0.2, 1, 50, 95, 99.8])
+        cnorm = colors.LogNorm(vmin=lo, vmax=vhi)
+        ax_.pcolormesh(
+            COL[ccd], ROW[ccd], F[ccd], norm=cnorm, cmap="Greys_r", rasterized=True
+        )
+
+        counter = 0
+        for i, (k, val) in enumerate(sb_ephems_lowres.items()):
+            if len(val) == 0:
+                continue
+            val = val.query(f"camera == {camera} and ccd == {ccd}")
+            if len(val) > 0:
+                counter += 1
+                ax_.plot(val.column, val.row, "-", lw=0.5, rasterized=True)
+            # if i == 10: break
+
+        ax_.set_title(f"CCD {ccd} N = {counter}")
+
+        ax_.axis("equal")
+
+    ax[1, 0].set_xlabel("Pixel Column")
+    ax[1, 1].set_xlabel("Pixel Column")
+    ax[0, 0].set_ylabel("Pixel Row")
+    ax[1, 0].set_ylabel("Pixel Row")
+
+    dir_name = f"{os.path.dirname(PACKAGEDIR)}/data/figures/asteroid_tracks"
+    if not os.path.isdir(dir_name):
+        os.makedirs(dir_name)
+    dir_name = f"{dir_name}/tess_ffi_s{sector:04}-{camera}-all_asteroid_tracks.pdf"
+    plt.savefig(dir_name, bbox_inches="tight")
+
+
 def create_FFI_asteroid_database(
     sector: int = 1,
     camera: int = 1,
@@ -607,12 +745,25 @@ if __name__ == "__main__":
         default=None,
         help="TESS CCD number",
     )
+    parser.add_argument(
+        "--lim-mag",
+        dest="lim_mag",
+        type=float,
+        default=24.0,
+        help="Limiting magnitude in V band.",
+    )
     args = parser.parse_args()
     create_FFI_asteroid_database(
         sector=args.sector,
         camera=args.camera,
         ccd=args.ccd,
-        maglim=22,
+        maglim=args.lim_mag,
         provider="mast",
         plot=False,
     )
+    if args.ccd == 0:
+        plot_tess_camera(
+            sector=args.sector,
+            camera=args.camera,
+            maglim=args.lim_mag,
+        )
