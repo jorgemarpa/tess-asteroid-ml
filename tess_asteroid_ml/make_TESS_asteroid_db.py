@@ -171,7 +171,14 @@ def get_asteroid_table(
         for qtime in date_obs:
             print(edge1, edge2, qtime, maglim, elem)
             aux_res.append(
-                query_jpl_sbi(edge1, edge2, obstime=qtime, maglim=maglim, elem=elem)
+                query_jpl_sbi(
+                    edge1,
+                    edge2,
+                    obstime=qtime,
+                    maglim=maglim,
+                    elem=elem,
+                    sb_kind=sb_kind,
+                )
             )
         jpl_sb = (
             pd.concat(aux_res)
