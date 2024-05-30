@@ -272,11 +272,11 @@ def make_asteroid_cut_data(
         plt.close()
 
     # get cutout centers given size and overlap
-    xcen, ycen = get_cutout_centers(sampling="tiled", overlap=5, size=cutout_size)
+    xcen, ycen = get_cutout_centers(sampling="tiled", overlap=4, size=cutout_size)
     # create a dict with cutout centers in radec
     cut_dict = {}
-    for i in ycen[1:, 0]:
-        for j in xcen[0, 1:]:
+    for i in ycen[:, 0]:
+        for j in xcen[0, :]:
             cut_dict[f"c{col_2d[i, j]:04}_r{row_2d[i,j]:04}"] = SkyCoord(
                 ra_2d[i, j] * u.deg, dec_2d[i, j] * u.deg, frame="icrs"
             )
@@ -317,6 +317,7 @@ def make_asteroid_cut_data(
             )
         # iterate cutouts in a single row
         F, X, Y, L, NAMES, CAD = [], [], [], [], [], []
+        COMET = np.zeros(len(tpf_names)).astype(bool)
         sb_ephems_highres = {}
         for q, ff in tqdm(
             enumerate(tpf_names),
@@ -331,7 +332,7 @@ def make_asteroid_cut_data(
                 fficut_aster.fit_background(polyorder=3, positive_flux=True)
 
             for k, val in sb_ephems_lowres.items():
-                if len(val) == 0:
+                if len(val) <= 1:
                     continue
                 # check if asteroid track passes over the TESScut
                 is_in = in_cutout(
@@ -360,6 +361,9 @@ def make_asteroid_cut_data(
                         mask_radius=source_rad,
                         mask_num_type="dec",
                     )
+                    if asteroid_df.loc[k, "kind"] == "c":
+                        COMET[q] = True
+
             F.append(fficut_aster.flux_2d)
             X.append(fficut_aster.column_2d[0, 0])
             Y.append(fficut_aster.row_2d[0, 0])
@@ -406,6 +410,15 @@ def make_asteroid_cut_data(
 
         dts = np.diff(TIME)
         breaks = np.where(dts >= 0.2)[0] + 1
+
+        if verbose:
+            print(f"Data breaks in cadences: {breaks}")
+
+        if False:
+            plt.plot(TIME)
+            for bk in breaks:
+                plt.axvline(bk, c="r")
+            plt.show()
 
         if len(breaks) > 0:
             F = np.array_split(F, breaks, axis=1)
@@ -456,6 +469,7 @@ def make_asteroid_cut_data(
                 quat=QUAT[bk],
                 earth_angles=E_ANG[bk],
                 moon_angles=M_ANG[bk],
+                has_comet=COMET,
             )
 
     return

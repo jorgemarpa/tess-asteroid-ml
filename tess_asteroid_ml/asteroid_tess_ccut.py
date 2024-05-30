@@ -93,7 +93,7 @@ class AsteroidTESScut:
         )
         self.cadenceno = self.tpf.cadenceno.copy()
         # remove cadences with flux == 0s in all pixels
-        self.quality_mask &= (self.tpf.flux == 0.).sum(axis=-1).sum(axis=-1) == 0
+        self.quality_mask &= (self.tpf.flux == 0.0).sum(axis=-1).sum(axis=-1) == 0
         self.tpf = self.tpf[self.quality_mask]
         self.target_str = self.tpf.targetid
         self.sector = self.tpf.sector
@@ -182,7 +182,7 @@ class AsteroidTESScut:
         # self._cbvs = self.cbvs.copy()
         if align or interpolate:
             target_mask = self.tpf.create_threshold_mask(
-                threshold=15, reference_pixel='center'
+                threshold=15, reference_pixel="center"
             )
             ffi_lc = self.tpf.to_lightcurve(aperture_mask=target_mask)
             if align:
@@ -275,7 +275,7 @@ class AsteroidTESScut:
                 asteroid_number = (len(self.asteroid_names)) + 1
         else:
             if mask_num_type == "byte":
-                asteroid_number = 2 ** 0
+                asteroid_number = 2**0
             else:
                 asteroid_number = 1
             # self.asteroid_mask = np.zeros_like(self.flux, dtype=int)
@@ -415,7 +415,7 @@ class AsteroidTESScut:
         if not isinstance(self.tpf, lk.TessTargetPixelFile):
             raise ValueError("Input a TESS Target Pixel File")
 
-        if (np.product(self.tpf.shape[1:]) < 100) | np.any(
+        if (np.prod(self.tpf.shape[1:]) < 100) | np.any(
             np.asarray(self.tpf.shape[1:]) < 6
         ):
             raise ValueError("TPF too small. Use a bigger cut out.")
@@ -471,9 +471,7 @@ class AsteroidTESScut:
         )
 
         # Calculate the model for each orbit, then join them
-        self.bkg_model = np.vstack(
-            [func(aux) for aux in [self.tpf[:b], self.tpf[b:]]]
-        )
+        self.bkg_model = np.vstack([func(aux) for aux in [self.tpf[:b], self.tpf[b:]]])
         self.flux -= self.bkg_model.reshape(
             self.ntimes, self.cutout_size * self.cutout_size
         )
