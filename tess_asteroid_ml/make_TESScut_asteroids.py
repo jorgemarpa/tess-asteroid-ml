@@ -428,6 +428,7 @@ def make_asteroid_cut_data(
             QUAT = np.array_split(QUAT, breaks, axis=0)
             E_ANG = np.array_split(E_ANG, breaks, axis=0)
             M_ANG = np.array_split(M_ANG, breaks, axis=0)
+            CAD = np.array_split(keep_cad, breaks, axis=0)
         else:
             F = [F]
             L = [L]
@@ -436,6 +437,7 @@ def make_asteroid_cut_data(
             QUAT = [fficut_aster.quaternions]
             E_ANG = [fficut_aster.earth_angle]
             M_ANG = [fficut_aster.moon_angle]
+            CAD = [keep_cad]
 
         # save data to disk
         out_path = f"{os.path.dirname(PACKAGEDIR)}/data/asteroidcuts/sector{sector:04}"
@@ -465,6 +467,7 @@ def make_asteroid_cut_data(
                 row=Y,
                 mask=L[bk].astype(np.int16),
                 time=TIME[bk],
+                cadenceno=CAD[bk],
                 cbv=CBV[bk],
                 quat=QUAT[bk],
                 earth_angles=E_ANG[bk],
