@@ -88,6 +88,7 @@ def get_cutout_centers(
 
 def read_asteroid_db(
     df,
+    small: bool = False,
     low_res: bool = False,
     sector: int = 1,
     camera: int = 0,
@@ -126,6 +127,8 @@ def read_asteroid_db(
                 if low_res:
                     step = len(ephems_aux) // 27 - 1 if len(ephems_aux) > 100 else 4
                     ephems_aux = ephems_aux[::step]
+                if small:
+                    ephems_aux = ephems_aux.loc[:, ["time", "column", "row", "vmag"]]
                 sb_ephems[k] = ephems_aux
     return sb_ephems
 
@@ -224,11 +227,11 @@ def make_asteroid_cut_data(
         print(f"Asteroid table has {len(asteroid_df)} items with V < {limiting_mag}")
 
     # get asteroid tracks in low res
-    sb_ephems_lowres = read_asteroid_db(
-        asteroid_df, low_res=True, sector=sector, camera=camera, ccd=ccd
+    sb_ephems_hires = read_asteroid_db(
+        asteroid_df, low_res=False, sector=sector, camera=camera, ccd=ccd
     )
     if verbose:
-        print(f"Asteroid track DB has {len(sb_ephems_lowres)} available")
+        print(f"Asteroid track DB has {len(sb_ephems_hires)} available")
 
     # plot FFI image with asteroid tracks if asked
     if plot:
@@ -241,13 +244,15 @@ def make_asteroid_cut_data(
         plt.pcolormesh(col_2d, row_2d, f2d, norm=cnorm, cmap="Greys_r", rasterized=True)
 
         counter = 0
-        for k, val in sb_ephems_lowres.items():
+        for k, val in sb_ephems_hires.items():
             if len(val) == 0:
                 continue
             val = val.query(f"camera == {camera} and ccd == {ccd}")
             if len(val) > 0:
                 counter += 1
-            plt.plot(val.column, val.row, "-", ms=0.8, lw=0.5, rasterized=True)
+            plt.plot(
+                val.column[::2], val.row[::2], "-", ms=0.8, lw=0.5, rasterized=True
+            )
             # if k == 1: break
         plt.title(
             f"Asteroid tracks in Sector {sector} Camera {camera} CCD {ccd} \n "
@@ -292,8 +297,8 @@ def make_asteroid_cut_data(
     tot_cutouts = len([x for xs in tpf_names_list for x in xs])
     if verbose:
         print(f"Total cutouts in disk {tot_cutouts}")
-    if sampling == "dense" and tot_cutouts != len(cut_dict):
-        raise FileNotFoundError(f"Found only {tot_cutouts} instead of {len(cut_dict)}")
+    # if sampling == "dense" and tot_cutouts != len(cut_dict):
+    #     raise FileNotFoundError(f"Found only {tot_cutouts} instead of {len(cut_dict)}")
     if download_only:
         sys.exit()
 
@@ -318,7 +323,7 @@ def make_asteroid_cut_data(
         # iterate cutouts in a single row
         F, X, Y, L, NAMES, CAD = [], [], [], [], [], []
         COMET = np.zeros(len(tpf_names)).astype(bool)
-        sb_ephems_highres = {}
+
         for q, ff in tqdm(
             enumerate(tpf_names),
             total=len(tpf_names),
@@ -331,31 +336,20 @@ def make_asteroid_cut_data(
             if fit_bkg:
                 fficut_aster.fit_background(polyorder=3, positive_flux=True)
 
-            for k, val in sb_ephems_lowres.items():
+            for k, val in sb_ephems_hires.items():
                 if len(val) <= 1:
                     continue
                 # check if asteroid track passes over the TESScut
                 is_in = in_cutout(
                     fficut_aster.column,
                     fficut_aster.row,
-                    sb_ephems_lowres[k].column.values,
-                    sb_ephems_lowres[k].row.values,
+                    sb_ephems_hires[k].column.values,
+                    sb_ephems_hires[k].row.values,
                 )
                 if is_in:
-                    if k not in sb_ephems_highres.keys():
-                        sb_ephems_highres.update(
-                            read_asteroid_db(
-                                asteroid_df.loc[[k]],
-                                low_res=False,
-                                sector=sector,
-                                camera=camera,
-                                ccd=ccd,
-                                quiet=True,
-                            )
-                        )
-                    source_rad = 3.2e2 / (sb_ephems_highres[k].vmag.mean()) ** 1.8
+                    source_rad = 3.2e2 / (sb_ephems_hires[k].vmag.mean()) ** 1.8
                     fficut_aster.get_asteroid_mask(
-                        sb_ephems_highres[k],
+                        sb_ephems_hires[k],
                         name=asteroid_df.loc[k, ["Object name", "V_mag"]],
                         mask_type="circular",
                         mask_radius=source_rad,
@@ -376,9 +370,6 @@ def make_asteroid_cut_data(
             else:
                 NAMES.append(pd.DataFrame([]))
 
-            if fficut_aster.asteroid_mask_2d is None:
-                break
-
         keep_cad = reduce(np.intersect1d, CAD)
         keep_mask = [np.isin(C, keep_cad) for C in CAD]
 
@@ -390,23 +381,7 @@ def make_asteroid_cut_data(
         # make others arrays, time, CBV, quat and angles
         keep_mask = np.isin(fficut_aster.cadenceno[fficut_aster.quality_mask], keep_cad)
         TIME = fficut_aster.time[keep_mask]
-
-        fficut_aster.get_CBVs(align=False, interpolate=True)
-        CBV = fficut_aster.cbvs[keep_mask]
-        ff = (
-            f"{os.path.dirname(PACKAGEDIR)}/data/engineering/TESSVectors_S1-26_FFI"
-            f"/TessVectors_S{sector:03}_C{camera}_FFI.csv"
-        )
-        vectors = pd.read_csv(ff, skiprows=44)
-        QUAT = vectors.loc[
-            keep_cad, ["Quat1_Med", "Quat2_Med", "Quat3_Med", "Quat4_Med"]
-        ].values
-        E_ANG = vectors.loc[
-            keep_cad, ["Earth_Camera_Angle", "Earth_Camera_Azimuth"]
-        ].values
-        M_ANG = vectors.loc[
-            keep_cad, ["Moon_Camera_Angle", "Moon_Camera_Azimuth"]
-        ].values
+        CAD = keep_cad
 
         dts = np.diff(TIME)
         breaks = np.where(dts >= 0.2)[0] + 1
@@ -424,20 +399,12 @@ def make_asteroid_cut_data(
             F = np.array_split(F, breaks, axis=1)
             L = np.array_split(L, breaks, axis=1)
             TIME = np.array_split(TIME, breaks, axis=0)
-            CBV = np.array_split(CBV, breaks, axis=0)
-            QUAT = np.array_split(QUAT, breaks, axis=0)
-            E_ANG = np.array_split(E_ANG, breaks, axis=0)
-            M_ANG = np.array_split(M_ANG, breaks, axis=0)
-            CAD = np.array_split(keep_cad, breaks, axis=0)
+            CAD = np.array_split(CAD, breaks, axis=0)
         else:
             F = [F]
             L = [L]
             TIME = [fficut_aster.time]
-            CBV = [fficut_aster.cbvs]
-            QUAT = [fficut_aster.quaternions]
-            E_ANG = [fficut_aster.earth_angle]
-            M_ANG = [fficut_aster.moon_angle]
-            CAD = [keep_cad]
+            CAD = [CAD]
 
         # save data to disk
         out_path = f"{os.path.dirname(PACKAGEDIR)}/data/asteroidcuts/sector{sector:04}"
@@ -454,25 +421,22 @@ def make_asteroid_cut_data(
 
         # save flux, mask and array data as npz files per row of cutouts per orbit
         for bk in range(len(F)):
-            if len(TIME[bk]) < cutout_size + 2:
+            if len(TIME[bk]) < cutout_size:
                 continue
             out_file = (
                 f"{out_path}/tess-asteroid-cuts_{cutout_size}x{cutout_size}"
                 f"_s{sector:04}-{camera}-{ccd}_V{limiting_mag}_orb{bk+1}_bkg{str(fit_bkg)[0]}_{nrow:02}.npz"
             )
+            # flux data in fits files is in float32, time is in float64
             np.savez(
                 out_file,
-                flux=F[bk],
-                column=X,
-                row=Y,
+                flux=F[bk].astype(np.float32),
+                column=X.astype(np.int16),
+                row=Y.astype(np.int16),
                 mask=L[bk].astype(np.int16),
-                time=TIME[bk],
-                cadenceno=CAD[bk],
-                cbv=CBV[bk],
-                quat=QUAT[bk],
-                earth_angles=E_ANG[bk],
-                moon_angles=M_ANG[bk],
-                has_comet=COMET,
+                time=TIME[bk].astype(np.float64),
+                cadenceno=CAD[bk].astype(np.int16),
+                has_comet=COMET.astype(bool),
             )
 
     return
