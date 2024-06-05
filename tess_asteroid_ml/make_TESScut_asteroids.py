@@ -321,8 +321,7 @@ def make_asteroid_cut_data(
                 f"and {len(tpf_names)} cuts..."
             )
         # iterate cutouts in a single row
-        F, X, Y, L, NAMES, CAD = [], [], [], [], [], []
-        COMET = np.zeros(len(tpf_names)).astype(bool)
+        F, X, Y, L, NAMES, CAD, COMET = [], [], [], [], [], [], []
 
         for q, ff in tqdm(
             enumerate(tpf_names),
@@ -335,6 +334,8 @@ def make_asteroid_cut_data(
             )
             if fit_bkg:
                 fficut_aster.fit_background(polyorder=3, positive_flux=True)
+
+            comet_aux = np.zeros(fficut_aster.ntimes).astype(bool)
 
             for k, val in sb_ephems_hires.items():
                 if len(val) <= 1:
@@ -355,14 +356,20 @@ def make_asteroid_cut_data(
                         mask_radius=source_rad,
                         mask_num_type="dec",
                     )
+                    # flag cadences with comet in the cutout
                     if asteroid_df.loc[k, "kind"] == "c":
-                        COMET[q] = True
+                        ast_idx = list(fficut_aster.asteroid_names.keys())[-1]
+                        comet_aux |= np.isin(
+                            np.arange(fficut_aster.ntimes),
+                            fficut_aster.asteroid_time_idx[ast_idx],
+                        )
 
             F.append(fficut_aster.flux_2d)
             X.append(fficut_aster.column_2d[0, 0])
             Y.append(fficut_aster.row_2d[0, 0])
             L.append(fficut_aster.asteroid_mask_2d)
             CAD.append(fficut_aster.cadenceno[fficut_aster.quality_mask])
+            COMET.append(comet_aux)
             if hasattr(fficut_aster, "asteroid_names"):
                 NAMES.append(
                     pd.DataFrame.from_dict(fficut_aster.asteroid_names, orient="index")
@@ -376,6 +383,7 @@ def make_asteroid_cut_data(
         # make 4d arrays (n_cutout, n_time, n_col, n_row)
         F = np.array([F[k][keep_mask[k]] for k in range(len(F))])
         L = np.array([L[k][keep_mask[k]] for k in range(len(L))])
+        COMET = np.array([COMET[k][keep_mask[k]] for k in range(len(COMET))])
         X, Y = np.array(X), np.array(Y)
 
         # make others arrays, time, CBV, quat and angles
@@ -400,11 +408,13 @@ def make_asteroid_cut_data(
             L = np.array_split(L, breaks, axis=1)
             TIME = np.array_split(TIME, breaks, axis=0)
             CAD = np.array_split(CAD, breaks, axis=0)
+            COMET = np.array_split(COMET, breaks, axis=1)
         else:
             F = [F]
             L = [L]
             TIME = [fficut_aster.time]
             CAD = [CAD]
+            COMET = [COMET]
 
         # save data to disk
         out_path = f"{os.path.dirname(PACKAGEDIR)}/data/asteroidcuts/sector{sector:04}"
@@ -436,7 +446,7 @@ def make_asteroid_cut_data(
                 mask=L[bk].astype(np.int16),
                 time=TIME[bk].astype(np.float64),
                 cadenceno=CAD[bk].astype(np.int16),
-                has_comet=COMET.astype(bool),
+                has_comet=COMET[bk].astype(bool),
             )
 
     return
