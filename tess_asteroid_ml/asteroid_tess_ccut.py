@@ -271,11 +271,15 @@ class AsteroidTESScut:
         if hasattr(self, "asteroid_names"):
             if mask_num_type == "byte":
                 asteroid_number = 2 ** (len(self.asteroid_names))
+            elif mask_num_type == "index" and isinstance(name, pd.Series):
+                asteroid_number = name.name
             else:
                 asteroid_number = (len(self.asteroid_names)) + 1
         else:
             if mask_num_type == "byte":
                 asteroid_number = 2**0
+            elif mask_num_type == "index" and isinstance(name, pd.Series):
+                asteroid_number = name.name
             else:
                 asteroid_number = 1
             # self.asteroid_mask = np.zeros_like(self.flux, dtype=int)
