@@ -17,3 +17,4 @@ notebooks/data
 notebooks/figures/.DS_Store
 notebooks/.DS_Store
 data/jpl/*.csv
+data/support/pixel_mask/.DS_Store
