@@ -15,7 +15,7 @@ from astropy.coordinates import SkyCoord
 from astropy.time import Time
 from tqdm import tqdm
 from astrocut import CutoutFactory
-from astropy.stats import sigma_clip
+from scipy.interpolate import RegularGridInterpolator
 
 from tess_asteroid_ml import *
 from tess_asteroid_ml.make_TESS_asteroid_db import *
@@ -176,6 +176,48 @@ def get_ffi_cutouts(
     return tpf_names_list
 
 
+def correct_track_offsets(
+    sb_ephems_hires,
+    sector: int = 1,
+    camera: int = 1,
+    ccd: int = 1,
+):
+    path = f"{os.path.dirname(PACKAGEDIR)}/data/support/position_offsets"
+    offset_row = pd.read_csv(f"{path}/source_position_offset_row.csv", header=[0, 1])
+    offset_col = pd.read_csv(f"{path}/source_position_offset_column.csv", header=[0, 1])
+
+    interp_col = RegularGridInterpolator(
+        (
+            offset_col.loc[:, ("column", "column")].values.reshape(20, 20)[:, 0],
+            offset_col.loc[:, ("row", "row")].values.reshape(20, 20)[0, :],
+        ),
+        offset_col.loc[:, (str(camera), str(ccd))].values.reshape(20, 20),
+        method="slinear",
+        bounds_error=False,
+        fill_value=None,
+    )
+
+    interp_row = RegularGridInterpolator(
+        (
+            offset_row.loc[:, ("column", "column")].values.reshape(20, 20)[:, 0],
+            offset_row.loc[:, ("row", "row")].values.reshape(20, 20)[0, :],
+        ),
+        offset_row.loc[:, (str(camera), str(ccd))].values.reshape(20, 20),
+        method="slinear",
+        bounds_error=False,
+        fill_value=None,
+    )
+
+    sb_ephems_hires_corr = {}
+    for k, df in sb_ephems_hires.items():
+        aux = df.copy()
+        aux.column -= interp_col(aux[["column", "row"]].values) / 2
+        aux.row -= interp_row(aux[["column", "row"]].values) / 2
+        sb_ephems_hires_corr[k] = aux
+
+    return sb_ephems_hires_corr
+
+
 def make_asteroid_cut_data(
     sector: int = 1,
     camera: int = 1,
@@ -186,8 +228,9 @@ def make_asteroid_cut_data(
     cutout_size: int = 64,
     verbose: bool = False,
     plot: bool = False,
-    download=False,
-    download_only=False,
+    correct_offsets: bool = True,
+    download: bool = False,
+    download_only: bool = False,
 ):
     provider = "mast"
 
@@ -232,6 +275,10 @@ def make_asteroid_cut_data(
     )
     if verbose:
         print(f"Asteroid track DB has {len(sb_ephems_hires)} available")
+    if correct_offsets:
+        sb_ephems_hires = correct_track_offsets(
+            sb_ephems_hires, sector=sector, camera=camera, ccd=ccd
+        )
 
     # plot FFI image with asteroid tracks if asked
     if plot:
@@ -517,6 +564,13 @@ if __name__ == "__main__":
         help="Plot FFI + asteroid tracks  (flag).",
     )
     parser.add_argument(
+        "--correct-offsets",
+        dest="correct_offsets",
+        action="store_true",
+        default=False,
+        help="Correct position offsets.",
+    )
+    parser.add_argument(
         "--verbose",
         dest="verbose",
         action="store_true",
@@ -547,6 +601,7 @@ if __name__ == "__main__":
         limiting_mag=args.lim_mag,
         cutout_size=args.cutout_size,
         verbose=args.verbose,
+        correct_offsets=args.correct_offsets,
         plot=args.plot,
         download=args.download,
         download_only=args.download_only,
