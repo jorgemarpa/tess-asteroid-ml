@@ -257,7 +257,7 @@ def make_asteroid_cut_data(
     obs_time = Time([ffi_header["DATE-OBS"], ffi_header["DATE-END"]], format="isot")
 
     # get asteroid catalog
-    jpl_df = get_asteroid_table(
+    asteroid_df = get_asteroid_table(
         SkyCoord(ra_2d.min() * u.deg, dec_2d.min() * u.deg, frame="icrs"),
         SkyCoord(ra_2d.max() * u.deg, dec_2d.max() * u.deg, frame="icrs"),
         sector=sector,
@@ -266,7 +266,7 @@ def make_asteroid_cut_data(
         date_obs=obs_time.mean().jd,
     )
     if limiting_mag <= 30:
-        asteroid_df = jpl_df.query(f"V_mag <= {limiting_mag}")
+        asteroid_df = asteroid_df.query(f"V_mag <= {limiting_mag}")
     if verbose:
         print(f"Asteroid table has {len(asteroid_df)} items with V < {limiting_mag}")
 
@@ -345,8 +345,8 @@ def make_asteroid_cut_data(
     tot_cutouts = len([x for xs in tpf_names_list for x in xs])
     if verbose:
         print(f"Total cutouts in disk {tot_cutouts}")
-    # if sampling == "dense" and tot_cutouts != len(cut_dict):
-    #     raise FileNotFoundError(f"Found only {tot_cutouts} instead of {len(cut_dict)}")
+    if sampling == "dense" and tot_cutouts != len(cut_dict):
+        raise FileNotFoundError(f"Found only {tot_cutouts} instead of {len(cut_dict)}")
     if download_only:
         sys.exit()
 
@@ -356,12 +356,14 @@ def make_asteroid_cut_data(
             "`--download` flag to get the data"
         )
 
+    del f2d, col_2d, row_2d, ra_2d, dec_2d, xcen, ycen
+
     if flux_scale:
         file_in = f"{os.path.dirname(PACKAGEDIR)}/data/support/data_transformers"
         file_in = f"{file_in}/quantile_transformer_s{sector:04}-{camera}-{ccd}.pkl"
         if verbose:
             print("Flux data will be scaled using Quantile Scaling saved in:")
-            print(f"\t{file_int}")
+            print(f"\t{file_in}")
 
         if not os.path.isfile(file_in):
             raise FileNotFoundError("WARNING: Quantile scaler file not found.")
@@ -462,12 +464,6 @@ def make_asteroid_cut_data(
 
         if verbose:
             print(f"Data breaks in cadences: {breaks}")
-
-        if False:
-            plt.plot(TIME)
-            for bk in breaks:
-                plt.axvline(bk, c="r")
-            plt.show()
 
         if len(breaks) > 0:
             F = np.array_split(F, breaks, axis=1)
