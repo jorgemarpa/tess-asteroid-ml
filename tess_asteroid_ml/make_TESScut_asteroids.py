@@ -231,6 +231,7 @@ def make_asteroid_cut_data(
     correct_offsets: bool = True,
     download: bool = False,
     download_only: bool = False,
+    flux_scale: bool = False,
 ):
     provider = "mast"
 
@@ -355,6 +356,18 @@ def make_asteroid_cut_data(
             "`--download` flag to get the data"
         )
 
+    if flux_scale:
+        file_in = f"{os.path.dirname(PACKAGEDIR)}/data/support/data_transformers"
+        file_in = f"{file_in}/quantile_transformer_s{sector:04}-{camera}-{ccd}.pkl"
+        if verbose:
+            print("Flux data will be scaled using Quantile Scaling saved in:")
+            print(f"\t{file_int}")
+
+        if not os.path.isfile(file_in):
+            raise FileNotFoundError("WARNING: Quantile scaler file not found.")
+        with open(file_in, "rb") as f:
+            qt = pickle.load(f)
+
     # iterate over cutouts row in the grid
     for nn, tpf_names in enumerate(tpf_names_list):
         if len(tpf_names) == 0:
@@ -395,7 +408,7 @@ def make_asteroid_cut_data(
                     sb_ephems_hires[k].row.values,
                 )
                 if is_in:
-                    source_rad = 3.2e2 / (sb_ephems_hires[k].vmag.mean()) ** 1.8
+                    source_rad = 3.2e2 / (sb_ephems_hires[k].vmag.mean()) ** 1.75
                     fficut_aster.get_asteroid_mask(
                         sb_ephems_hires[k],
                         name=asteroid_df.loc[k, ["Object name", "V_mag"]],
@@ -411,7 +424,13 @@ def make_asteroid_cut_data(
                             fficut_aster.asteroid_time_idx[ast_idx],
                         )
 
-            F.append(fficut_aster.flux_2d)
+            if flux_scale:
+                flux_2d = qt.transform(
+                    fficut_aster.flux_2d.flatten().reshape(-1, 1)
+                ).reshape(fficut_aster.flux_2d.shape)
+            else:
+                flux_2d = fficut_aster.flux_2d
+            F.append(flux_2d)
             X.append(fficut_aster.column_2d[0, 0])
             Y.append(fficut_aster.row_2d[0, 0])
             L.append(fficut_aster.asteroid_mask_2d)
@@ -571,6 +590,13 @@ if __name__ == "__main__":
         help="Correct position offsets.",
     )
     parser.add_argument(
+        "--flux-scale",
+        dest="flux_scale",
+        action="store_true",
+        default=False,
+        help="Scale flux with quantile transormer.",
+    )
+    parser.add_argument(
         "--verbose",
         dest="verbose",
         action="store_true",
@@ -602,6 +628,7 @@ if __name__ == "__main__":
         cutout_size=args.cutout_size,
         verbose=args.verbose,
         correct_offsets=args.correct_offsets,
+        flux_scale=args.flux_scale,
         plot=args.plot,
         download=args.download,
         download_only=args.download_only,
