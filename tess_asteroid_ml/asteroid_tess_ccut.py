@@ -3,9 +3,6 @@ import numpy as np
 import pandas as pd
 import lightkurve as lk
 import os
-import fitsio
-from tqdm import tqdm
-from typing import Optional
 from . import log, PACKAGEDIR
 from .utils import power_find, in_cutout
 from scipy.interpolate import CubicSpline
