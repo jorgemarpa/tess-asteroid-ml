@@ -18,6 +18,8 @@ tess-ephem = "^0.4.0"
 tess-cloud = "^0.5.0"
 astrocut = { git = "https://github.com/spacetelescope/astrocut.git" }
 sbident = { git = "https://github.com/bengebre/sbident.git" }
+tessrip = {git = "https://github.com/jorgemarpa/tessrip.git"}
+scikit-learn = "^1.4.2"
 
 [tool.poetry.dev-dependencies]
 pytest = "^5.2"
