@@ -34,38 +34,31 @@ def flatten_list(nested_list):
 
 def plot_mask_cube(sector: int=1, camera: int=1, ccd: int=1):
 
-    forb1 = sorted(
-        glob(
-            f"{DATAPATH}/sector{sector:04}/tess-asteroid-cuts_*_s{sector:04}-{camera}-{ccd}*orb1*.npz"
+    forb = [
+        sorted(
+            glob(
+                f"{DATAPATH}/sector{sector:04}/tess-asteroid-cuts_*_s{sector:04}-{camera}-{ccd}*orb{k}*.npz"
+            )
         )
-    )
-    forb2 = sorted(
-        glob(
-            f"{DATAPATH}/sector{sector:04}/tess-asteroid-cuts_*_s{sector:04}-{camera}-{ccd}*orb2*.npz"
-        )
-    )
+        for k in range(1, 5)
+    ]
+    forb = np.asarray([x for x in forb if x != []]).T
 
     cube_mask_sum = []
-    cube_flux = []
     cube_row = []
     cube_col = []
 
-    for f1, f2 in zip(forb1, forb2):
-        data = np.load(f1)
+    for fs in forb:
+        mask_aux = []
+        for f in fs:
+            data = np.load(f)
+            mask_aux.append(data["mask"].astype(bool).astype(int).sum(axis=1))
 
-        mask1 = data["mask"].astype(bool).astype(int).sum(axis=1)
         cube_col.extend(data["column"])
         cube_row.extend(data["row"])
-        cube_flux.append(data["flux"])
-
-        data = np.load(f2)
-        mask2 = data["mask"].astype(bool).astype(int).sum(axis=1)
-        cube_mask_sum.append(mask1 + mask2)
+        cube_mask_sum.append(np.array(mask_aux).sum(axis=0))
 
     cube_mask_sum = flatten_list(cube_mask_sum)
-    cube_flux = flatten_list(cube_flux)
-
-    print(len(cube_mask_sum), len(cube_col), len(cube_row))
 
     cube_row2d = []
     cube_col2d = []
@@ -75,7 +68,11 @@ def plot_mask_cube(sector: int=1, camera: int=1, ccd: int=1):
         cube_row2d.append(_row2d)
         cube_col2d.append(_col2d)
 
-    print(len(cube_row2d), len(cube_col2d))
+    cube_mask_sum = np.array(cube_mask_sum)
+    cube_row2d = np.array(cube_row2d)
+    cube_col2d = np.array(cube_col2d)
+
+    print(cube_mask_sum.shape, cube_row2d.shape, cube_col2d.shape)
 
     fig, ax = plt.subplots(1, 1, figsize=(12, 12))
     fig.suptitle(f"Sector {sector} Camera {camera} CDD {ccd}", y=0.92)
