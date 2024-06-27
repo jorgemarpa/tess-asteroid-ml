@@ -409,7 +409,8 @@ def make_asteroid_cut_data(
                     sb_ephems_hires[k].column.values,
                     sb_ephems_hires[k].row.values,
                 )
-                if is_in:
+                ti = np.where(fficut_aster.time >= sb_ephems_hires[k].time.values[0])[0]
+                if is_in and len(ti) > 0:
                     source_rad = 3.2e2 / (sb_ephems_hires[k].vmag.mean()) ** 1.75
                     fficut_aster.get_asteroid_mask(
                         sb_ephems_hires[k],
