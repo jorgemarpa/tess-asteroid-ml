@@ -16,6 +16,7 @@ from astropy.time import Time
 from tqdm import tqdm
 from astrocut import CutoutFactory
 from scipy.interpolate import RegularGridInterpolator
+from astrocut.exceptions import InvalidQueryError
 
 from tess_asteroid_ml import *
 from tess_asteroid_ml.make_TESS_asteroid_db import *
@@ -46,14 +47,17 @@ def get_cutouts(
         )
         if not os.path.isfile(output):
             print(f"Creating FFI cut: {output}")
-            factory.cube_cut(
-                cube_file=cube_file,
-                coordinates=v,
-                cutout_size=cutout_size,
-                target_pixel_file=output,
-                threads="auto",
-            )
-        tpf_names.append(output)
+            try:
+                factory.cube_cut(
+                    cube_file=cube_file,
+                    coordinates=v,
+                    cutout_size=cutout_size,
+                    target_pixel_file=output,
+                    threads="auto",
+                )
+                tpf_names.append(output)
+            except InvalidQueryError:
+                continue
 
     return tpf_names
 
@@ -346,7 +350,10 @@ def make_asteroid_cut_data(
     if verbose:
         print(f"Total cutouts in disk {tot_cutouts}")
     if sampling == "dense" and tot_cutouts != len(cut_dict):
-        raise FileNotFoundError(f"Found only {tot_cutouts} instead of {len(cut_dict)}")
+        # raise FileNotFoundError(f"Found only {tot_cutouts} instead of {len(cut_dict)}")
+        print(
+            f"WARNING: Missing cutouts, found only {tot_cutouts} instead of {len(cut_dict)}"
+        )
     if download_only:
         sys.exit()
 
