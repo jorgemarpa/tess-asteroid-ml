@@ -221,14 +221,14 @@ def get_FFI_name(
             tess_cloud.list_images(sector=sector, camera=camera, ccd=ccd, author="spoc")
             for ccd in range(1, 5)
         ]
-        frame = len(files[0]) // 2
+        frame = len(files[0]) // 3
         file_name = [x[frame].filename for x in files]
 
     else:
         files = tess_cloud.list_images(
             sector=sector, camera=camera, ccd=ccd, author="spoc"
         )
-        frame = len(files) // 2
+        frame = len(files) // 3
         file_name = files[frame].filename
     if not isinstance(file_name, list):
         file_name = [file_name]

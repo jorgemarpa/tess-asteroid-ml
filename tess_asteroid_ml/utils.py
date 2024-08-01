@@ -1,5 +1,6 @@
 import numpy as np
 import fitsio
+from astropy.stats import sigma_clip
 
 
 def power_find(n):
@@ -124,3 +125,91 @@ def load_ffi_image(
         row_2d, col_2d = np.mgrid[r_min:r_max, c_min:c_max]
         return col_2d, row_2d, f[r_min:r_max, c_min:c_max]
     return f[r_min:r_max, c_min:c_max]
+
+
+def fit_background(cube, cadenceno: list=[], polyorder: int = 1, positive_flux: bool = False):
+    """Fit a simple 2d polynomial background to a TPF or cutout
+
+    Parameters
+    ----------
+    cube: numpy.ndarray
+        data cube of dimention [T, H, W]
+    cadenceno: list, numpy.array
+        Array with time index or cadence number
+    polyorder: int
+        Polynomial order for the model fit.
+    positive_flux: bool
+        Avoid negative numbers after removing background by adding a zero point value.
+
+    Returns
+    -------
+    cube : np.ndarray
+        Data cube woht background removed.
+    """
+
+    if not isinstance(cube, np.ndarray):
+        raise ValueError("Input is not a Numpy ND Array")
+    
+    if len(cube.shape) != 3:
+        raise ValueError("Input has to have 3 dimensions [T, H, W]")
+
+    if (np.prod(cube.shape[1:]) < 100) | np.any(np.asarray(cube.shape[1:]) < 6):
+        raise ValueError("TPF too small. Use a bigger cut out.")
+
+    # Grid for calculating polynomial
+    R, C = np.mgrid[: cube.shape[1], : cube.shape[2]].astype(float)
+    R -= cube.shape[1] / 2
+    C -= cube.shape[2] / 2
+
+    def func(data):
+        # Design matrix
+        A = np.vstack(
+            [
+                R.ravel() ** idx * C.ravel() ** jdx
+                for idx in range(polyorder + 1)
+                for jdx in range(polyorder + 1)
+            ]
+        ).T
+
+        # Median star image
+        m = np.median(data, axis=0)
+        # Remove background from median star image
+        mask = ~sigma_clip(m, sigma=3).mask.ravel()
+        # plt.imshow(mask.reshape(m.shape))
+        bkg0 = A.dot(
+            np.linalg.solve(A[mask].T.dot(A[mask]), A[mask].T.dot(m.ravel()[mask]))
+        ).reshape(m.shape)
+
+        m -= bkg0
+
+        # Include in design matrix
+        A = np.hstack([A, m.ravel()[:, None]])
+
+        # Fit model to data, including a model for the stars
+        f = np.vstack(data.transpose([1, 2, 0]))
+        ws = np.linalg.solve(A.T.dot(A), A.T.dot(f))
+
+        # Build a model that is just the polynomial
+        model = (
+            (A[:, :-1].dot(ws[:-1]))
+            .reshape((data.shape[1], data.shape[2], data.shape[0]))
+            .transpose([2, 0, 1])
+        )
+        # model += bkg0
+        return model
+
+    # Break point for TESS orbit
+    if len(cadenceno) > 0:
+        b = (
+            np.where(np.diff(cadenceno) == np.diff(cadenceno).max())[0][0]
+            + 1
+        )
+        # Calculate the model for each orbit, then join them
+        bkg_model = np.vstack([func(aux) for aux in [cube[:b], cube[b:]]])
+    else:
+        bkg_model = func(cube)
+
+    cube -= bkg_model.reshape(cube.shape[0], cube.shape[1], cube.shape[2])
+    if positive_flux:
+        cube += np.abs(np.floor(np.min(cube)))
+    return cube
