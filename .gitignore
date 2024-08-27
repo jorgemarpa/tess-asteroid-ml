@@ -21,3 +21,6 @@ data/support/pixel_mask/.DS_Store
 .DS_Store
 .vscode/settings.json
 notebooks/figures/.ipynb_checkpoints
+notebooks/figures/tess_ffi_sector0002-1_image.pdf
+notebooks/figures/tess_ffi_sector0002-1-3_image_zoom.pdf
+notebooks/figures/tess_ffi_sector0002-1-4_cad0610_NN_prototype.pdf
