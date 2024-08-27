@@ -5,7 +5,7 @@ description = "Tools to create a ML-ready dataset out of TESS FFIs to study aste
 authors = ["Jorge Martínez-Palomera <jorgemarpa@ug.uchile.cl>"]
 
 [tool.poetry.dependencies]
-python = "^3.9"
+python = ">=3.9,<3.13"
 scipy = "^1.9.0"
 matplotlib = "^3.6.3"
 lightkurve = "^2.3.0"
@@ -14,11 +14,11 @@ astropy = "^5.2.0"
 pandas = "^1.4.4"
 numpy = "^1.23.0"
 tqdm = "^4.51.1"
-tess-ephem = "^0.4.0"
+tess-ephem = "^0.4"
 tess-cloud = "^0.5.0"
 astrocut = { git = "https://github.com/spacetelescope/astrocut.git" }
 sbident = { git = "https://github.com/bengebre/sbident.git" }
-tessrip = {git = "https://github.com/jorgemarpa/tessrip.git"}
+tesscube = {git = "https://github.com/jorgemarpa/tesscube.git"}
 scikit-learn = "^1.4.2"
 
 [tool.poetry.dev-dependencies]

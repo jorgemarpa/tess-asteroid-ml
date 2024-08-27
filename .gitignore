@@ -18,3 +18,6 @@ notebooks/figures/.DS_Store
 notebooks/.DS_Store
 data/jpl/*.csv
 data/support/pixel_mask/.DS_Store
+.DS_Store
+.vscode/settings.json
+notebooks/figures/.ipynb_checkpoints
