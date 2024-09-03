@@ -6,7 +6,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import pickle
 
-from tessrip import Rip
+from tesscube import TESSCube
 from tess_asteroid_ml.make_TESS_asteroid_db import *
 from tess_asteroid_ml import PACKAGEDIR
 from sklearn.preprocessing import QuantileTransformer
@@ -49,12 +49,12 @@ def build_data_transformer(
     print("Fit data transformer to scale flux values into Quantiles")
 
     # use tessrip to find th darkest/brightes/mid cadences
-    rips = Rip(sector=sector, camera=camera, ccd=ccd)
+    rips = TESSCube(sector=sector, camera=camera, ccd=ccd)
     flux, _ = rips.get_flux(shape=(100, 100))
 
-    nt, nr, nc = flux.array.shape
-    mean_flux = np.mean(flux.array.reshape((nt, nr * nc)), axis=-1)
-    qmask = rips.quality.array == 0
+    nt, nr, nc = flux.shape
+    mean_flux = np.mean(flux.reshape((nt, nr * nc)), axis=-1)
+    qmask = rips.quality == 0
 
     pcen = np.percentile(mean_flux[qmask], [0, 1, 50, 99, 100], interpolation="nearest")
     cad_pcen = [np.abs(mean_flux[qmask] - x).argmin() for x in pcen]
