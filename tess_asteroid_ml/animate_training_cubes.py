@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from matplotlib import patches
-from tqdm.notebook import tqdm
+from tqdm import tqdm
 
 from tess_asteroid_ml import PACKAGEDIR
 
