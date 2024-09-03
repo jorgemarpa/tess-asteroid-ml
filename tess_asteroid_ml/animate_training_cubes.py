@@ -13,11 +13,11 @@ from tqdm.notebook import tqdm
 from tess_asteroid_ml import PACKAGEDIR
 
 if "adapt" in socket.gethostname():
-    adapt = "/explore/nobackup/projects/asteroid/data/asteroidcuts"
+    DATAPATH = "/explore/nobackup/projects/asteroid/data/asteroidcuts"
 elif "fortuna" in socket.gethostname():
-    local = "/Users/jimartin/Work/TESS/tess-asteroid-ml/data/asteroidcuts"
+    DATAPATH = "/Users/jimartin/Work/TESS/tess-asteroid-ml/data/asteroidcuts"
 else:
-    local = "/Users/jimartin/Work/TESS/tess-asteroid-ml/data/asteroidcuts"
+    DATAPATH = "/Users/jimartin/Work/TESS/tess-asteroid-ml/data/asteroidcuts"
 
 
 # naive rolling median window in time
@@ -154,7 +154,7 @@ def animate_cube(sector=1, camera=1, ccd=1, orb=1, ncubes=5):
     forb = [
         sorted(
             glob(
-                f"{local}/sector{sector:04}/tess-asteroid-cuts_*_s{sector:04}-{camera}-{ccd}*orb{k}*.npz"
+                f"{DATAPATH}/sector{sector:04}/tess-asteroid-cuts_*_s{sector:04}-{camera}-{ccd}*orb{k}*.npz"
             )
         )
         for k in range(orb, orb + 1)
