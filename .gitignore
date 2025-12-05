@@ -21,3 +21,9 @@ data/support/pixel_mask/.DS_Store
 .DS_Store
 .vscode/settings.json
 notebooks/figures/*
+data/upload.tar.gz
+data/asteroid_lcs
+data/moving_TPFs
+data/pred_asteroid_tracks
+data/pred_cubes
+data/support
