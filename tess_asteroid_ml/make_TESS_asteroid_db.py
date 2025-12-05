@@ -305,7 +305,7 @@ def get_sector_time_array(
             )
             tpf = lk.read(tpf_path)
     else:
-        tpf = tpf = lk.search_tesscut(target, sector=sector).download(
+        tpf = lk.search_tesscut(target, sector=sector).download(
             cutout_size=(10, 10), quality_bitmask=None
         )
     return tpf.time
@@ -333,7 +333,7 @@ def get_asteroids_in_FFI(
     if not os.path.isdir(track_file_root):
         os.makedirs(track_file_root)
 
-    print(f"Will find asteroid tracks as check if are on FFI...")
+    print(f"Will find asteroid tracks and check if are on FFI...")
     sb_ephems = {}
     for k, row in tqdm(df.iterrows(), total=len(df), desc="JPL query"):
         # if k > 50:
@@ -589,14 +589,16 @@ def create_FFI_asteroid_database(
     if maglim <= 30:
         asteroid_df = jpl_df.query(f"V_mag <= {maglim}")
     asteroid_df = asteroid_df.sort_values("V_mag")
+    print(f"Asteroid catalog shape (V < {maglim}): ", asteroid_df.shape)
 
     time = get_sector_time_array(
-        f"{ra_2d[0][1000, 900]:.5f} {dec_2d[0][1000, 900]:.5f}",
+        f"{ra_2d[1][1000, 900]:.5f} {dec_2d[1][1000, 900]:.5f}",
         sector=sector,
         camera=camera,
         ccd=camera,
         tike=False,
     )
+    print("Sector time shape ", time.shape, "min/max:", time.min(), time.max())
 
     # get tracks of asteroids on the FFI between observing dates
     asteroid_tracks = get_asteroids_in_FFI(
@@ -759,6 +761,13 @@ if __name__ == "__main__":
         default=24.0,
         help="Limiting magnitude in V band.",
     )
+    parser.add_argument(
+        "--plot",
+        dest="plot",
+        action="store_true",
+        default=False,
+        help="Plot FFI + asteroid tracks  (flag).",
+    )
     args = parser.parse_args()
     create_FFI_asteroid_database(
         sector=args.sector,
@@ -766,7 +775,7 @@ if __name__ == "__main__":
         ccd=args.ccd,
         maglim=args.lim_mag,
         provider="mast",
-        plot=False,
+        plot=args.plot,
     )
     if args.ccd == 0:
         plot_tess_camera(
