@@ -2,7 +2,7 @@ import os
 import argparse
 import tempfile
 import s3fs
-import time
+import requests
 
 import numpy as np
 import pandas as pd
@@ -22,7 +22,8 @@ from astroquery.jplhorizons import Horizons
 from requests.exceptions import ConnectTimeout, ReadTimeout, Timeout, ConnectionError
 from sbident import SBIdent
 
-import tess_cloud
+# import tess_cloud
+from tesscube import TESSCube
 from tess_ephem import TessEphem
 from tess_asteroid_ml import PACKAGEDIR
 from tess_asteroid_ml.utils import load_ffi_image
@@ -218,18 +219,15 @@ def get_FFI_name(
 ):
     if ccd == 0:
         files = [
-            tess_cloud.list_images(sector=sector, camera=camera, ccd=ccd, author="spoc")
-            for ccd in range(1, 5)
+            TESSCube(sector=sector, camera=camera, ccd=c).ffi_names for c in range(1, 5)
         ]
         frame = len(files[0]) // 3
-        file_name = [x[frame].filename for x in files]
+        file_name = [x[frame] for x in files]
 
     else:
-        files = tess_cloud.list_images(
-            sector=sector, camera=camera, ccd=ccd, author="spoc"
-        )
+        files = TESSCube(sector=sector, camera=camera, ccd=ccd).ffi_names
         frame = len(files) // 3
-        file_name = files[frame].filename
+        file_name = files[frame]
     if not isinstance(file_name, list):
         file_name = [file_name]
 
@@ -335,7 +333,9 @@ def get_asteroids_in_FFI(
 
     print(f"Will find asteroid tracks and check if are on FFI...")
     sb_ephems = {}
-    for k, row in tqdm(df.iterrows(), total=len(df), desc="JPL query"):
+    for k, row in tqdm(
+        df.iterrows(), total=len(df), desc=f"JPL query Sec/Cam {sector}/{camera}"
+    ):
         # if k > 50:
         #     break
         # read file with asteroid track from disk if exists
@@ -364,6 +364,7 @@ def get_asteroids_in_FFI(
                 ReadTimeout,
                 Timeout,
                 ConnectionError,
+                requests.exceptions.HTTPError,
             ):  # MaxRetryError
                 continue
                 # time.sleep(5)
@@ -392,8 +393,8 @@ def get_asteroids_in_FFI(
             try:
                 ephems_aux = te.predict(
                     time=lowres_time,
-                    aberrate=True,
-                    verbose=True,
+                    # aberrate=True,
+                    # verbose=True,
                 )
             except SystemExit:
                 print(f"`tess_stars2px` failed for {name_ok}. Continuing...")
@@ -404,8 +405,8 @@ def get_asteroids_in_FFI(
             if do_highres and predict_times is not None:
                 ephems_aux = te.predict(
                     time=predict_times,
-                    aberrate=True,
-                    verbose=True,
+                    # aberrate=True,
+                    # verbose=True,
                 )
             # filter by camera/ccd, if both 0 will save the full sector
             if camera != 0 and ccd != 0:
@@ -543,7 +544,48 @@ def plot_tess_camera(sector: int = 1, camera: int = 1, maglim: float = 24):
     if not os.path.isdir(dir_name):
         os.makedirs(dir_name)
     dir_name = f"{dir_name}/tess_ffi_s{sector:04}-{camera}-all_asteroid_tracks.pdf"
+    print(f"Saving figure to {dir_name}")
     plt.savefig(dir_name, bbox_inches="tight")
+
+
+def create_FFI_asteroid_database_v2(
+    sector: int = 1,
+    camera: int = 1,
+    ccd: int = 1,
+    maglim: float = 22,
+):
+    # get asteroid catalog from JPL
+    jpl_fname = (
+        f"../data/jpl/jpl_small_bodies_tess_s{sector:04}-{camera}-{ccd}_catalog.csv"
+    )
+    if not os.path.isfile(jpl_fname):
+        raise FileNotFoundError
+    jpl_df = pd.read_csv(jpl_fname, index_col=0)
+
+    # filter bright ateroids, 30 is the mag limit in the original JPL query
+    if maglim <= 30:
+        asteroid_df = jpl_df.query(f"V_mag <= {maglim}")
+    asteroid_df = asteroid_df.sort_values("V_mag")
+    print(f"Asteroid catalog shape (V < {maglim}): ", asteroid_df.shape)
+
+    # get times for sector
+    if ccd == 0:
+        time = TESSCube(sector=sector, camera=camera, ccd=1).time
+    else:
+        time = TESSCube(sector=sector, camera=camera, ccd=ccd).time
+    time = Time(time, format="btjd", scale="tdb")
+    print("Sector time shape ", time.shape, "min/max:", time.min(), time.max())
+
+    # get tracks of asteroids on the FFI between observing dates
+    asteroid_tracks = get_asteroids_in_FFI(
+        asteroid_df,
+        do_highres=True,
+        predict_times=time,
+        sector=sector,
+        camera=0,
+        ccd=0,
+    )
+    print(f"Total asteroids (V < {maglim}) in FFI: {len(asteroid_tracks)}")
 
 
 def create_FFI_asteroid_database(
@@ -769,17 +811,15 @@ if __name__ == "__main__":
         help="Plot FFI + asteroid tracks  (flag).",
     )
     args = parser.parse_args()
-    create_FFI_asteroid_database(
+    create_FFI_asteroid_database_v2(
         sector=args.sector,
         camera=args.camera,
         ccd=args.ccd,
         maglim=args.lim_mag,
-        provider="mast",
-        plot=args.plot,
     )
-    if args.ccd == 0:
-        plot_tess_camera(
-            sector=args.sector,
-            camera=args.camera,
-            maglim=args.lim_mag,
-        )
+    # if args.ccd == 0:
+    #     plot_tess_camera(
+    #         sector=args.sector,
+    #         camera=args.camera,
+    #         maglim=args.lim_mag,
+    #     )
