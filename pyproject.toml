@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "tess-asteroid-ml"
-version = "0.1.0"
+version = "0.2.0"
 description = "Tools to create a ML-ready dataset out of TESS FFIs to study asteroids."
 authors = ["Jorge Martínez-Palomera <jorgemarpa@ug.uchile.cl>"]
 
